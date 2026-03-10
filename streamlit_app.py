@@ -304,6 +304,50 @@ st.markdown(f"""
     font-family: 'Inter', sans-serif;
 }}
 
+/* ── Compactar espaço no topo — mais conteúdo na dobra ── */
+.block-container {{
+    padding-top: 0.6rem !important;
+    padding-bottom: 1rem !important;
+}}
+section[data-testid="stSidebar"] > div:first-child {{
+    padding-top: 0.5rem !important;
+}}
+/* Remove espaço extra do header oculto */
+.stApp > header {{ min-height: 0 !important; height: 0 !important; }}
+
+/* ── Tabs — minimalistas, sem numeração ─────────────── */
+.stTabs [data-baseweb="tab-list"] {{
+    gap: 2px;
+    background: transparent;
+    border-bottom: 1px solid {C['border']};
+    padding-bottom: 0;
+}}
+.stTabs [data-baseweb="tab"] {{
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    color: {C['dim']} !important;
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    padding: 8px 16px !important;
+    border-bottom: 2px solid transparent !important;
+    margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+}}
+.stTabs [data-baseweb="tab"]:hover {{
+    color: {C['text']} !important;
+    background: rgba(255,255,255,0.04) !important;
+}}
+.stTabs [aria-selected="true"] {{
+    color: {MINT} !important;
+    font-weight: 700 !important;
+    border-bottom: 2px solid {MINT} !important;
+    background: transparent !important;
+}}
+.stTabs [data-baseweb="tab-panel"] {{
+    padding-top: 16px !important;
+}}
+
 /* ── Sidebar collapse button ────────────────────────── */
 [data-testid="stSidebarCollapsedControl"],
 [data-testid="collapsedControl"],
@@ -337,11 +381,11 @@ section[data-testid="stSidebar"] .stRadio label span {{
     color: {C['text']} !important;
 }}
 .sidebar-logo {{
-    text-align: center; padding: 20px 16px 12px;
+    text-align: center; padding: 6px 16px 10px;
     border-bottom: 1px solid {C['border']};
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }}
-.sidebar-logo img {{ max-width: 160px; height: auto; }}
+.sidebar-logo img {{ max-width: 140px; height: auto; }}
 
 /* ── Hero header ─────────────────────────────────────── */
 .hero-header {{
@@ -1341,6 +1385,7 @@ def parse_number(v):
 #  SIDEBAR
 # ─────────────────────────────────────────
 with st.sidebar:
+    # ── Logo ─────────────────────────────────────────────
     if logo_b64:
         st.markdown(f"""
         <div class="sidebar-logo">
@@ -1348,7 +1393,19 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("## 📅 Período")
+    # ── 1. Cliente ────────────────────────────────────────
+    st.markdown("### 👤 Cliente")
+    selected_client = st.selectbox(
+        "Selecione o cliente:",
+        list(CLIENTS.keys()),
+        index=0,
+        label_visibility="collapsed",
+    )
+
+    st.markdown("---")
+
+    # ── 2. Período ───────────────────────────────────────
+    st.markdown("### 📅 Período")
     period = st.radio(
         "Selecione o período:",
         ["Hoje", "Ontem", "Últimos 7 dias", "Últimos 30 dias", "Mês Atual", "Personalizado"],
@@ -1363,19 +1420,13 @@ with st.sidebar:
         custom_end   = st.date_input("Data fim",    value=date.today())
 
     st.markdown("---")
+
+    # ── 3. Ações ─────────────────────────────────────────
     st.markdown("### ⚡ Ações")
     refresh = st.button("🔄 Atualizar Dados", use_container_width=True)
     if refresh:
         st.cache_data.clear()
         st.rerun()
-
-    st.markdown("---")
-    st.markdown("### ⚔️ Cliente")
-    selected_client = st.selectbox(
-        "Selecione o cliente:",
-        list(CLIENTS.keys()),
-        index=0,
-    )
 
     st.markdown("---")
     st.markdown(
