@@ -220,10 +220,26 @@ def get_gps_coords(client_name):
         coords['meta_inv'] - 1,
     )
 
-# Constantes da aba Análise Perfor (não mudam por cliente)
-GPS_ROW_CPS      = 20  # D21 — CPS Pago
-GPS_ROW_TICKET   = 22  # D23 — Ticket Médio
-GPS_ROW_CONV     = 23  # D24 — Taxa de Conversão
+# ══════════════════════════════════════════════════════════════
+# Coordenadas GPS/26 — FONTE DE VERDADE (0-based = linha planilha - 1)
+# Confirmadas pelo processo do Rober (vídeo 10/03/2026)
+# ══════════════════════════════════════════════════════════════
+
+# ── Desempenho de Vendas ──────────────────────────────────────
+GPS_ROW_REC_CAPTADA  =  5   # idx 5  → Linha 6:  Receita Captada
+GPS_ROW_REC_FATURADA =  6   # idx 6  → Linha 7:  Receita Faturada
+GPS_ROW_INV_TOTAL    = 14   # idx 14 → Linha 15: Investimento Total
+GPS_ROW_PEDIDOS      = 18   # idx 18 → Linha 19: Pedidos Pagos
+
+# ── KPI Real (aba GPS/26) ─────────────────────────────────────
+GPS_ROW_CPS          = 20   # idx 20 → Linha 21: CPS Real
+GPS_ROW_CONV         = 23   # idx 23 → Linha 24: Taxa de Conversão Real
+GPS_ROW_TICKET       = 22   # idx 22 → Linha 23: Ticket Médio Real
+
+# ── KPI Meta (aba GPS/26) ─────────────────────────────────────
+GPS_ROW_CPS_META     = 40   # idx 40 → Linha 41: Meta CPS
+GPS_ROW_CONV_META    = 43   # idx 43 → Linha 44: Meta Taxa de Conversão
+GPS_ROW_TICKET_META  = 42   # idx 42 → Linha 43: Meta Ticket Médio
 GADS_SHEET_TAB    = 'Google Ads'
 CREDENTIALS_FILE  = os.path.join(os.path.dirname(__file__), 'google_credentials.json')
 # ID da Planilha Mestre vem do .env (PLANILHA_MESTRE_ID)
@@ -1254,7 +1270,7 @@ def fetch_gps_cells(client_name):
     col_idx, row_rec, row_meta_rec, row_inv, row_meta_inv = get_gps_coords(client_name)
     col_letter = chr(ord('A') + col_idx)   # para debug legível (ex: 'D')
 
-    # ── 7. Ler as quatro células com coordenadas exatas ───────────
+    # ── 7. Ler células GPS — coordenadas por cliente ─────────────
     raw_fat      = _safe_cell(gps_all, row_rec,      col_idx)
     raw_fat_meta = _safe_cell(gps_all, row_meta_rec, col_idx)
     raw_inv      = _safe_cell(gps_all, row_inv,      col_idx)
@@ -1267,6 +1283,17 @@ def fetch_gps_cells(client_name):
 
     # Atingimento = fat_real / fat_meta * 100  (em %)
     atingimento = (fat_real / fat_meta * 100) if fat_meta > 0 else 0.0
+
+    # ── 7b. Células fixas do Relatório (idx fixos, mesma col do mês) ─
+    raw_rec_captada  = _safe_cell(gps_all, GPS_ROW_REC_CAPTADA,  col_idx)
+    raw_rec_faturada = _safe_cell(gps_all, GPS_ROW_REC_FATURADA, col_idx)
+    raw_inv_total_r  = _safe_cell(gps_all, GPS_ROW_INV_TOTAL,    col_idx)
+    raw_pedidos      = _safe_cell(gps_all, GPS_ROW_PEDIDOS,       col_idx)
+
+    rec_captada_r  = _parse_safe(raw_rec_captada)
+    rec_faturada_r = _parse_safe(raw_rec_faturada)
+    inv_total_r    = _parse_safe(raw_inv_total_r)
+    pedidos_r      = _parse_safe(raw_pedidos)
 
     # ── 8. Debug info completo ────────────────────────────────────
     _col_scores = {col_idx: 4}
@@ -1299,67 +1326,82 @@ def fetch_gps_cells(client_name):
         'col_scores':        str(_col_scores),
     }
 
-    # ── 9. Aba Análise Perfor (opcional — acesso direto, sem worksheets()) ─
-    analise_kpis = {}
-    try:
-        ws_analise = None
-        _ANALISE_NAMES = [
-            ANALISE_SHEET_TAB,      # '🔍 Análise Perfor'
-            'Análise Perfor',
-            'Analise Perfor',
-            '🔍 Análise Perfor',
-            'Análise',
-        ]
-        for _aname in _ANALISE_NAMES:
-            try:
-                ws_analise = spreadsheet.worksheet(_aname)
-                break
-            except gspread.exceptions.WorksheetNotFound:
-                continue
-            except Exception:
-                break   # erro de cota/rede — pula silenciosamente
+    # ── 9. KPIs Real + Meta — busca por label na aba GPS/26 ────────
+    #
+    # Faixas (0-based): REALIZADO idx 4-38 | METAS idx 65-86
+    # Busca o label nas cols A/B/C, lê valor na col_idx (mês atual).
+    # Fallback: índices hardcoded se label não encontrado.
 
-        if ws_analise is not None:
-            analise_all, _ = _read_retry(ws_analise)
-            if analise_all:
-                # CPS, Ticket e Conversão usam a mesma lógica de col_d
-                _a_col = GPS_COL_D   # padrão
-                _a_scores = {}
-                for _ri in [GPS_ROW_CPS, GPS_ROW_TICKET, GPS_ROW_CONV]:
-                    if _ri < len(analise_all):
-                        for _ci in range(min(7, len(analise_all[_ri]))):
-                            val = str(analise_all[_ri][_ci]).strip()
-                            if val and val not in ('', '0', '-', '—'):
-                                _a_scores[_ci] = _a_scores.get(_ci, 0) + 1
-                if _a_scores.get(_a_col, 0) == 0 and _a_scores:
-                    _valid_a = {c: s for c, s in _a_scores.items() if c >= 3}
-                    if _valid_a:
-                        _a_col = max(_valid_a, key=_valid_a.get)
+    import unicodedata as _ud
 
-                analise_kpis = {
-                    'cps_pago':       _parse_safe(_safe_cell(analise_all, GPS_ROW_CPS,    _a_col)),
-                    'ticket_medio':   _parse_safe(_safe_cell(analise_all, GPS_ROW_TICKET, _a_col)),
-                    'taxa_conversao': _parse_safe(_safe_cell(analise_all, GPS_ROW_CONV,   _a_col)),
-                    '_cps_raw':       _safe_cell(analise_all, GPS_ROW_CPS,    _a_col),
-                    '_ticket_raw':    _safe_cell(analise_all, GPS_ROW_TICKET, _a_col),
-                    '_conv_raw':      _safe_cell(analise_all, GPS_ROW_CONV,   _a_col),
-                    '_col_used':      _a_col,
-                }
-    except Exception:
-        pass  # Análise Perfor é opcional
+    def _norm_kpi(s):
+        return _ud.normalize('NFKD', str(s).lower().strip()).encode('ascii', 'ignore').decode()
+
+    _CPS_LABELS    = {'custo por sessao', 'custo por sessao pago', 'cps', 'cps pago'}
+    _CONV_LABELS   = {'taxa de conversao', 'taxa conversao', 'conversao', 'conv'}
+    _TICKET_LABELS = {'ticket medio', 'ticket medio pago', 'ticket'}
+
+    def _find_kpi_row(matrix, labels_set, row_start, row_end):
+        for ri in range(row_start, min(row_end, len(matrix))):
+            row = matrix[ri]
+            for ci in range(min(3, len(row))):
+                if _norm_kpi(row[ci]) in labels_set:
+                    return ri
+        return None
+
+    _REAL_S, _REAL_E =  4, 39
+    _META_S, _META_E = 65, 87
+
+    _r_cps_r  = _find_kpi_row(gps_all, _CPS_LABELS,    _REAL_S, _REAL_E) or GPS_ROW_CPS
+    _r_conv_r = _find_kpi_row(gps_all, _CONV_LABELS,   _REAL_S, _REAL_E) or GPS_ROW_CONV
+    _r_tick_r = _find_kpi_row(gps_all, _TICKET_LABELS, _REAL_S, _REAL_E) or GPS_ROW_TICKET
+    _r_cps_m  = _find_kpi_row(gps_all, _CPS_LABELS,    _META_S, _META_E) or GPS_ROW_CPS_META
+    _r_conv_m = _find_kpi_row(gps_all, _CONV_LABELS,   _META_S, _META_E) or GPS_ROW_CONV_META
+    _r_tick_m = _find_kpi_row(gps_all, _TICKET_LABELS, _META_S, _META_E) or GPS_ROW_TICKET_META
+
+    analise_kpis = {
+        'cps_pago':         _parse_safe(_safe_cell(gps_all, _r_cps_r,  col_idx)),
+        'ticket_medio':     _parse_safe(_safe_cell(gps_all, _r_tick_r, col_idx)),
+        'taxa_conversao':   _parse_safe(_safe_cell(gps_all, _r_conv_r, col_idx)),
+        'cps_meta':         _parse_safe(_safe_cell(gps_all, _r_cps_m,  col_idx)),
+        'ticket_meta':      _parse_safe(_safe_cell(gps_all, _r_tick_m, col_idx)),
+        'conversao_meta':   _parse_safe(_safe_cell(gps_all, _r_conv_m, col_idx)),
+        '_cps_raw':         _safe_cell(gps_all, _r_cps_r,  col_idx),
+        '_ticket_raw':      _safe_cell(gps_all, _r_tick_r, col_idx),
+        '_conv_raw':        _safe_cell(gps_all, _r_conv_r, col_idx),
+        '_cps_meta_raw':    _safe_cell(gps_all, _r_cps_m,  col_idx),
+        '_ticket_meta_raw': _safe_cell(gps_all, _r_tick_m, col_idx),
+        '_conv_meta_raw':   _safe_cell(gps_all, _r_conv_m, col_idx),
+        '_rows_found': {
+            'cps_real': _r_cps_r, 'conv_real': _r_conv_r,
+            'ticket_real': _r_tick_r, 'cps_meta': _r_cps_m,
+            'conv_meta': _r_conv_m, 'ticket_meta': _r_tick_m,
+        },
+        '_col_used': col_idx,
+    }
 
     return {
-        'fat_real':    fat_real,
-        'fat_meta':    fat_meta,
-        'inv_total':   inv_total,
-        'inv_meta':    inv_meta,
-        'atingimento': atingimento,   # já em % (fat_real/fat_meta*100)
-        'roas':        0.0,
-        '_fat_raw':    raw_fat,
-        '_inv_raw':    raw_inv,
-        'analise':     analise_kpis,
-        'client_name': client_name,
-        'debug_info':  debug_info,
+        'fat_real':       fat_real,
+        'fat_meta':       fat_meta,
+        'inv_total':      inv_total,
+        'inv_meta':       inv_meta,
+        'atingimento':    atingimento,     # já em % (fat_real/fat_meta*100)
+        'roas':           0.0,
+        # ── Campos do Relatório (lidos de linhas fixas GPS/26) ──
+        'rec_captada':    rec_captada_r,   # idx 5
+        'rec_faturada':   rec_faturada_r,  # idx 6
+        'inv_total_rep':  inv_total_r,     # idx 14
+        'pedidos_pagos':  pedidos_r,       # idx 18 — Linha 19: Pedidos Pagos
+        # ── Raws ──
+        '_fat_raw':       raw_fat,
+        '_inv_raw':       raw_inv,
+        '_rec_cap_raw':   raw_rec_captada,
+        '_rec_fat_raw':   raw_rec_faturada,
+        '_inv_rep_raw':   raw_inv_total_r,
+        '_pedidos_raw':   raw_pedidos,
+        'analise':        analise_kpis,
+        'client_name':    client_name,
+        'debug_info':     debug_info,
     }, None
 
 
@@ -1482,60 +1524,102 @@ def parse_number(v):
 #  SIDEBAR
 # ─────────────────────────────────────────
 with st.sidebar:
-    # ── CSS injetado de DENTRO da sidebar ─────────────────
     st.markdown("""
 <style>
-    section[data-testid="stSidebar"] > div {
-        padding-top: 0rem !important;
-    }
-    section[data-testid="stSidebar"] > div > div {
-        padding-top: 0rem !important;
+    /* ── Topo: padding limpo, sem encavalamento ── */
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-top: 1rem !important;
+        padding-left: 1.2rem !important;
+        padding-right: 1.2rem !important;
     }
     [data-testid="stSidebarUserContent"] {
-        padding-top: 0rem !important;
+        padding-top: 0 !important;
+        padding-bottom: 1.5rem !important;
     }
+
+    /* Oculta nav multipage automático */
     [data-testid="stSidebarNav"] {
         display: none !important;
-        height: 0 !important;
-        overflow: hidden !important;
     }
-    /* Cola todos os blocos verticais — gap zero */
+
+    /* Gap entre blocos verticais */
     [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        gap: 0rem !important;
+        gap: 1.2rem !important;
     }
-    /* Remove separadores automáticos */
-    [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlockSeparator"] {
-        display: none !important;
+
+    /* ── Títulos de seção — Verde Neon Perfor ── */
+    .perfor-section-title {
+        font-size: 1rem !important;
+        font-weight: 800 !important;
+        color: #00FF88 !important;
+        letter-spacing: 0.3px;
+        margin: 0 0 0.3rem 0;
+        line-height: 1.3;
     }
-    /* Compacta widgets nativos do Streamlit na sidebar */
-    [data-testid="stSidebar"] .stSelectbox,
-    [data-testid="stSidebar"] .stRadio,
-    [data-testid="stSidebar"] .stButton {
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
+
+    /* Separador entre seções */
+    .perfor-divider {
+        border: none;
+        border-top: 1px solid #262626;
+        margin: 0;
     }
+
+    /* Texto dos radio buttons e labels */
+    [data-testid="stSidebar"] .stRadio label p,
+    [data-testid="stSidebar"] .stRadio label {
+        color: #E8E8E8 !important;
+        font-size: 0.9rem !important;
+    }
+
+    /* Espaçamento entre opções do radio */
     [data-testid="stSidebar"] .stRadio > div {
-        gap: 2px !important;
+        gap: 4px !important;
+    }
+
+    /* Selectbox — texto da opção selecionada */
+    [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
+        background-color: #1a1a1a !important;
+        border-color: #333333 !important;
+        color: #E8E8E8 !important;
+    }
+
+    /* Botão Atualizar — borda verde neon */
+    [data-testid="stSidebar"] .stButton > button {
+        background-color: transparent !important;
+        border: 1.5px solid #00FF88 !important;
+        color: #00FF88 !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        transition: background 0.2s;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: rgba(0,255,136,0.1) !important;
+    }
+
+    /* Rodapé */
+    .perfor-sidebar-footer {
+        font-size: 0.65rem;
+        color: #6B7280;
+        line-height: 1.5;
+        margin-top: 0.25rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-    # ── Logo base64 ───────────────────────────────────────
+    # ── Logo ─────────────────────────────────────────────────────
     if logo_b64:
         st.markdown(
-            f'<div style="text-align:center; margin-bottom:6px;">'
-            f'<img src="data:image/png;base64,{logo_b64}" width="140" style="display:inline-block;">'
+            f'<div style="text-align:center; margin-bottom:0.25rem;">'
+            f'<img src="data:image/png;base64,{logo_b64}" '
+            f'width="160" style="display:block; margin:0 auto;">'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-    # ── 1. Cliente ────────────────────────────────────────
+    # ── Seção: Cliente ───────────────────────────────────────────
+    st.markdown('<hr class="perfor-divider">', unsafe_allow_html=True)
     st.markdown(
-        "<p style='margin:6px 0 2px 0; font-size:0.7rem; font-weight:700; "
-        "text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>"
-        "👤 Cliente</p>",
+        "<p class='perfor-section-title'>👤 Cliente</p>",
         unsafe_allow_html=True,
     )
     selected_client = st.selectbox(
@@ -1545,11 +1629,10 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-    # ── 2. Período ───────────────────────────────────────
+    # ── Seção: Período ───────────────────────────────────────────
+    st.markdown('<hr class="perfor-divider">', unsafe_allow_html=True)
     st.markdown(
-        "<p style='margin:8px 0 2px 0; font-size:0.7rem; font-weight:700; "
-        "text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>"
-        "📅 Período</p>",
+        "<p class='perfor-section-title'>📅 Período</p>",
         unsafe_allow_html=True,
     )
     period = st.radio(
@@ -1564,11 +1647,10 @@ with st.sidebar:
         custom_start = st.date_input("Data início", value=date.today() - timedelta(days=30))
         custom_end   = st.date_input("Data fim",    value=date.today())
 
-    # ── 3. Ações ─────────────────────────────────────────
+    # ── Seção: Ações ─────────────────────────────────────────────
+    st.markdown('<hr class="perfor-divider">', unsafe_allow_html=True)
     st.markdown(
-        "<p style='margin:8px 0 2px 0; font-size:0.7rem; font-weight:700; "
-        "text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>"
-        "⚡ Ações</p>",
+        "<p class='perfor-section-title'>⚡ Ações</p>",
         unsafe_allow_html=True,
     )
     refresh = st.button("🔄 Atualizar Dados", use_container_width=True)
@@ -1577,9 +1659,13 @@ with st.sidebar:
             st.session_state.pop(_k, None)
         st.rerun()
 
+    # ── Rodapé ───────────────────────────────────────────────────
+    st.markdown('<hr class="perfor-divider">', unsafe_allow_html=True)
     st.markdown(
-        f"<p style='font-size:0.63rem; color:#6B7280; margin-top:8px; line-height:1.4;'>"
-        f"Meta API + Google Sheets<br>{datetime.now().strftime('%d/%m %H:%M')}</p>",
+        f"<p class='perfor-sidebar-footer'>"
+        f"Dados via Meta Marketing API + Google Sheets<br>"
+        f"Atualizado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        f"</p>",
         unsafe_allow_html=True,
     )
 
@@ -2214,53 +2300,6 @@ with tab_overview:
             _kpi_html_alav += '</div>'
             st.markdown(_kpi_html_alav, unsafe_allow_html=True)
 
-            # ── Gerador de Report WhatsApp ──────────────────────────
-            st.markdown("---")
-            st.markdown(f"### 📲 Report de WhatsApp — {selected_client}")
-
-            _hoje_str   = mi['hoje'].strftime('%d/%m/%Y')
-            _mes_str    = mi['nome_mes']
-            _dia_str    = f"Dia {mi['dia_atual']}/{mi['total_dias']}"
-            _prog_str   = f"{mi['progresso_mes']*100:.0f}%"
-            _ating_str  = f"{_ating_pct:.1f}%" if _ating_pct else _analise_cells.get('_ating_raw','—')
-            _roas_str   = f"{_roas_c:.2f}x" if _roas_c else "—"
-            _cps_str    = fmt_cur(_cps) if _cps else _an.get('_cps_raw','—')
-            _ticket_str = fmt_cur(_ticket) if _ticket else _an.get('_ticket_raw','—')
-            _conv_str   = f"{_conv:.2f}%" if _conv else _an.get('_conv_raw','—')
-
-            _report_text = (
-                f"📊 *REPORT PERFOR — {selected_client.upper()}*\n"
-                f"📅 {_hoje_str} · {_mes_str} · {_dia_str} ({_prog_str} do mês)\n"
-                f"\n"
-                f"*💰 RESULTADOS {_mes_str.upper()}*\n"
-                f"• Faturamento: *{fmt_cur(_fat_r)}*\n"
-                f"• Investimento: *{fmt_cur(_inv_r)}*\n"
-                f"• ROAS: *{_roas_str}*\n"
-                f"• Atingimento de Meta: *{_ating_str}*\n"
-                f"\n"
-                f"*🔍 KPIs DE ALAVANCA*\n"
-                f"• CPS Pago: *{_cps_str}*\n"
-                f"• Ticket Médio: *{_ticket_str}*\n"
-                f"• Taxa de Conversão: *{_conv_str}*\n"
-                f"\n"
-                f"_Perfor Branding · Dashboard Automatizado_"
-            )
-
-            st.text_area(
-                "📋 Copie o texto abaixo e cole no WhatsApp:",
-                value=_report_text,
-                height=300,
-                key=f"report_{selected_client}",
-            )
-
-            _wapp_url = "https://wa.me/?text=" + _report_text.replace('\n','%0A').replace(' ','%20').replace('*','*').replace('_','_')
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("📋 Copiar Report", key=f"copy_{selected_client}", use_container_width=True):
-                    st.toast("✅ Texto copiado! Cole no WhatsApp.", icon="📲")
-            with col_btn2:
-                st.link_button("📲 Abrir no WhatsApp", url=_wapp_url, use_container_width=True)
-
         st.markdown("---")
     elif _analise_err:
         st.warning(f"⚠️ Não foi possível carregar dados GPS de {selected_client}: {_analise_err}")
@@ -2448,9 +2487,229 @@ with tab_overview:
     </div>
     """, unsafe_allow_html=True)
 
+    # ══════════════════════════════════════════════════════════════════
+    #  GERADOR DE RELATÓRIO — 100% Planilha GPS + Análise Perfor
+    #  Coordenadas 0-based conforme layout GPS/26 e Análise Perfor
+    # ══════════════════════════════════════════════════════════════════
+    st.markdown(f"### 📲 Gerador de Relatório — {selected_client}")
 
-# ══════════════════════════════════════════════════════════
-#  ABA 03 — CRIATIVOS
+    # ── Lê do cache global ──────────────────────────────────────────
+    _gps_cells_rep, _ = _all_data['gps'].get(selected_client, ({}, None))
+    _gr  = _gps_cells_rep or {}
+    _anr = _gr.get('analise', {}) or {}
+
+    # ── 💰 Desempenho de Vendas — aba GPS/26 ────────────────────────
+    # idx 14 = Investimento Total   idx 5  = Receita Captada
+    # idx 6  = Receita Faturada     idx 18 = Pedidos Pagos
+    _inv_rep      = _gr.get('inv_total_rep', 0) or 0
+    _rec_cap      = _gr.get('rec_captada',   0) or 0
+    _rec_fat      = _gr.get('rec_faturada',  0) or 0
+    _pedidos      = _gr.get('pedidos_pagos', 0) or 0
+    _fat_meta_rep = _gr.get('fat_meta',      0) or 0
+    _inv_meta_rep = _gr.get('inv_meta',      0) or 0
+
+    # % de Pagamento = Rec. Faturada / Rec. Captada
+    _pct_pgto = (_rec_fat / _rec_cap * 100) if _rec_cap > 0 else 0
+
+    # ROAS = Rec. Faturada / Investimento
+    _roas_rep = (_rec_fat / _inv_rep) if _inv_rep > 0 else 0
+
+    # ── 🎯 Desempenho de Receita e Investimento ─────────────────────
+    _dia_rep      = mi['dia_atual']
+    _total_rep    = mi['total_dias']
+    _prog_mes_rep = mi['progresso_mes']
+    _prog_pct_rep = _prog_mes_rep * 100   # % dias decorridos no mês
+
+    # % Alcançado = Rec. Faturada / Meta de Faturamento
+    _pct_alcancado = (_rec_fat / _fat_meta_rep * 100) if _fat_meta_rep > 0 else 0
+
+    # Projeção = Rec. Faturada / Dia Atual × Total de Dias do Mês
+    _projecao = (_rec_fat / _dia_rep * _total_rep) if _dia_rep > 0 and _rec_fat > 0 else 0
+
+    # Status faturamento: alcançado vs previsto
+    _delta_fat = _pct_alcancado - _prog_pct_rep
+    if _pct_alcancado == 0:
+        _status_fat_txt  = "sem dados GPS"
+        _acima_abaixo    = ""
+    elif _delta_fat >= 0:
+        _status_fat_txt  = f"acima do previsto de {_prog_pct_rep:.2f}% para a data atual"
+        _acima_abaixo    = "acima do previsto"
+    else:
+        _status_fat_txt  = f"abaixo do previsto de {_prog_pct_rep:.2f}% para a data atual"
+        _acima_abaixo    = "abaixo do previsto"
+
+    # Status investimento
+    if _inv_meta_rep > 0:
+        _inv_ideal_rep  = _inv_meta_rep * _prog_mes_rep
+        _inv_delta_rep  = _inv_rep - _inv_ideal_rep
+        _pct_inv_rep    = _inv_rep / _inv_meta_rep * 100
+        _inv_dentro     = abs(_inv_delta_rep) / _inv_meta_rep < 0.10  # dentro de ±10%
+        _inv_status_txt = (
+            f"{_pct_inv_rep:.2f}% do orçamento total previsto, "
+            f"{'dentro do esperado' if _inv_dentro else ('acima do esperado' if _inv_delta_rep > 0 else 'abaixo do esperado')}."
+        )
+    else:
+        _inv_status_txt = "sem meta de orçamento configurada."
+        _pct_inv_rep    = 0.0
+
+    # ── 🔑 KPIs — Análise Perfor (Real idx 20/22/23, Meta idx 40/42/43) ─
+    _cps_real    = _anr.get('cps_pago',       0) or 0
+    _ticket_real = _anr.get('ticket_medio',   0) or 0
+    _conv_real   = _anr.get('taxa_conversao', 0) or 0
+    _cps_meta    = _anr.get('cps_meta',       0) or 0
+    _ticket_meta = _anr.get('ticket_meta',    0) or 0
+    _conv_meta   = _anr.get('conversao_meta', 0) or 0
+
+    # Variação: ((Real / Meta) - 1) × 100
+    def _variacao(real, meta):
+        if meta > 0 and real > 0:
+            return ((real / meta) - 1) * 100
+        return None
+
+    _var_cps    = _variacao(_cps_real,    _cps_meta)
+    _var_ticket = _variacao(_ticket_real, _ticket_meta)
+    _var_conv   = _variacao(_conv_real,   _conv_meta)
+
+    # Emoji: CPS → menor que meta = ✅ (custo menor é bom)
+    #        Ticket/Conv → maior que meta = ✅ (mais é melhor)
+    def _emoji_cps_fn(real, meta):
+        if not real or not meta: return ""
+        return "✅" if real <= meta else "❌"
+
+    def _emoji_up_fn(real, meta):
+        if not real or not meta: return ""
+        return "✅" if real >= meta else "❌"
+
+    _e_cps    = _emoji_cps_fn(_cps_real,    _cps_meta)
+    _e_ticket = _emoji_up_fn(_ticket_real,  _ticket_meta)
+    _e_conv   = _emoji_up_fn(_conv_real,    _conv_meta)
+
+    # Helpers de formatação
+    def _vc(val):
+        return fmt_cur(val) if val else "—"
+
+    def _vp(val, decimais=2):
+        return f"{val:.{decimais}f}%" if val else "—"
+
+    def _fmt_var(v):
+        if v is None: return ""
+        sinal = "+" if v >= 0 else ""
+        return f"({sinal}{v:.2f}%)"
+
+    # Datas cabeçalho
+    _primeiro_rep = mi['hoje'].replace(day=1)
+    _hoje_rep     = mi['hoje']
+    _data_cab     = f"{_primeiro_rep.strftime('%d/%m')} até {_hoje_rep.strftime('%d/%m')}"
+
+    _comentarios = ""
+
+    # ── Monta texto do relatório ──────────────────────────────────────
+    # Linha 🎯 — texto longo com % e valores interpolados
+    if _pct_alcancado > 0 and _fat_meta_rep > 0:
+        _linha_receita = (
+            f"• Receita: Até o momento *alcançamos {_pct_alcancado:.2f}% da nossa meta* "
+            f"de receita mensal, o que está *{_acima_abaixo}* "
+            f"para a data atual; "
+            f"conforme nossos resultados até o momento a projeção para fecharmos o mês "
+            f"está em {_vc(_projecao)}."
+        )
+    else:
+        _linha_receita = f"• Receita: — (aguardando dados GPS)"
+
+    if _inv_meta_rep > 0:
+        _linha_inv = (
+            f"• Investimento: Nosso investimento atual corresponde a "
+            f"{_pct_inv_rep:.2f}% do orçamento total previsto, "
+            f"{'dentro do esperado' if _inv_dentro else ('acima do esperado' if _inv_delta_rep > 0 else 'abaixo do esperado')}."
+        )
+    else:
+        _linha_inv = f"• Investimento: {_vc(_inv_rep)} investido — (sem meta configurada)"
+
+    # Linhas 🔑 KPIs
+    def _kpi_linha(label, real_str, meta_str, var, emoji):
+        base = f"➡️ {label}: {real_str}"
+        if meta_str and meta_str != "—":
+            base += f" | Meta: {meta_str}"
+        if var is not None:
+            base += f" {_fmt_var(var)}"
+        if emoji:
+            base += f" {emoji}"
+        return base
+
+    _linha_cps    = _kpi_linha(
+        "Custo por Sessão",
+        _vc(_cps_real),
+        _vc(_cps_meta),
+        _var_cps, _e_cps
+    )
+    _linha_conv   = _kpi_linha(
+        "Taxa de Conversão",
+        _vp(_conv_real),
+        _vp(_conv_meta),
+        _var_conv, _e_conv
+    )
+    _linha_ticket = _kpi_linha(
+        "Ticket Médio",
+        _vc(_ticket_real),
+        _vc(_ticket_meta),
+        _var_ticket, _e_ticket
+    )
+
+    _linhas = [
+        f"Feedback de Resultados 📊",
+        f"{_data_cab} · (Dia {_dia_rep}/{_total_rep} - {_prog_pct_rep:.0f}% do mês)",
+        f"",
+        f"💰 *Desempenho de Vendas*",
+        f"",
+        f"➡️ Investimento Total: {_vc(_inv_rep)}",
+        f"➡️ Receita Captada: {_vc(_rec_cap)}",
+        f"➡️ Receita Faturada: {_vc(_rec_fat)}",
+        f"➡️ % de Pagamento: {f'{_pct_pgto:.2f}%' if _pct_pgto else '—'}",
+        f"➡️ Pedidos Pagos: {int(_pedidos) if _pedidos else '—'}",
+        f"➡️ ROAS: {f'{_roas_rep:.2f}x' if _roas_rep else '—'}",
+        f"",
+        f"🎯 *Desempenho de Receita e Investimento:*",
+        f"",
+        _linha_receita,
+        _linha_inv,
+        f"",
+        f"🔑 *Performance das KPI*",
+        f"",
+        _linha_cps,
+        _linha_conv,
+        _linha_ticket,
+        f"",
+        f"📝 *Análise de Cenário e Próximos Passos:*",
+        _comentarios.strip() if _comentarios.strip() else "[Adicione sua análise aqui]",
+    ]
+
+    _linhas += [
+        f"",
+        f"Perfor Branding · {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+    ]
+
+    _report_final = "\n".join(_linhas)
+
+    # ── Exibe e botões ────────────────────────────────────────────────
+    st.text_area(
+        "📋 Relatório gerado — selecione tudo (Ctrl+A) e copie:",
+        value=_report_final,
+        height=480,
+        key=f"report_{selected_client}_{period}",
+    )
+
+    _rc1, _rc2 = st.columns(2)
+    with _rc1:
+        if st.button("📋 Copiar", key=f"copy_{selected_client}_{period}", use_container_width=True):
+            st.toast("✅ Selecione o texto acima → Ctrl+A → Ctrl+C", icon="📋")
+    with _rc2:
+        _wapp = (
+            "https://wa.me/?text="
+            + _report_final.replace('\n', '%0A').replace(' ', '%20')
+        )
+        st.link_button("📲 Abrir no WhatsApp", url=_wapp, use_container_width=True)
+
+
 # ══════════════════════════════════════════════════════════
 with tab_creatives:
     st.markdown(f"""
@@ -2740,22 +2999,36 @@ with tab_config:
     col_cfg1, col_cfg2 = st.columns(2)
 
     with col_cfg1:
+        # Verifica credenciais via _secret() — nunca acessa st.secrets diretamente
+        _has_meta_token   = bool(_secret('META_ACCESS_TOKEN'))
+        _has_gcp_secrets  = False
+        try:
+            if hasattr(st, 'secrets') and 'gcp_service_account' in st.secrets:
+                _has_gcp_secrets = True
+        except Exception:
+            _has_gcp_secrets = False
+        _has_gcp_file     = os.path.exists(CREDENTIALS_FILE)
+        _has_gcp          = _has_gcp_secrets or _has_gcp_file
+        _gcp_origem       = 'st.secrets' if _has_gcp_secrets else ('JSON local' if _has_gcp_file else 'não encontrado')
+        _meta_origem      = 'st.secrets / .env' if _has_meta_token else 'não encontrado'
+
         st.markdown(f"""
         <div style="background:{C['card']}; border:1px solid {C['border']}; border-radius:14px; padding:22px; margin-bottom:16px">
             <h4 style="color:{MINT}; margin-top:0">🔑 Credenciais &amp; Variáveis</h4>
             <table style="width:100%; font-size:0.82rem; color:{C['text']}">
                 <tr>
                     <td style="color:{C['dim']}; padding:6px 0">META_ACCESS_TOKEN</td>
-                    <td style="color:{'#69f0ae' if _secret('META_ACCESS_TOKEN') else C['red']}; font-weight:700">
-                        {'✅ Configurado' if _secret('META_ACCESS_TOKEN') else '❌ Não encontrado'}</td>
+                    <td style="color:{'#69f0ae' if _has_meta_token else C['red']}; font-weight:700">
+                        {'✅ Configurado' if _has_meta_token else '❌ Não encontrado'}</td>
                     <td style="color:{C['dim']}; font-size:0.72rem; padding-left:8px">
-                        {'(st.secrets)' if (lambda: (lambda v: bool(v))(st.secrets.get('META_ACCESS_TOKEN') if hasattr(st, "secrets") else None))() else '(.env)'}</td>
+                        {_meta_origem}</td>
                 </tr>
                 <tr>
                     <td style="color:{C['dim']}; padding:6px 0">gcp_service_account</td>
-                    <td style="color:{'#69f0ae' if (hasattr(st, "secrets") and st.secrets.get("gcp_service_account")) or os.path.exists(CREDENTIALS_FILE) else C['red']}; font-weight:700">
-                        {'✅ st.secrets' if (hasattr(st, "secrets") and st.secrets.get("gcp_service_account")) else ('✅ JSON local' if os.path.exists(CREDENTIALS_FILE) else '❌ Não encontrado')}</td>
-                    <td style="color:{C['dim']}; font-size:0.72rem; padding-left:8px">Google Sheets</td>
+                    <td style="color:{'#69f0ae' if _has_gcp else C['red']}; font-weight:700">
+                        {'✅ Configurado' if _has_gcp else '❌ Não encontrado'}</td>
+                    <td style="color:{C['dim']}; font-size:0.72rem; padding-left:8px">
+                        {_gcp_origem}</td>
                 </tr>
             </table>
         </div>
