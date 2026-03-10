@@ -709,12 +709,17 @@ def get_account_for_client(meta_id):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_data(_account, time_range_params, _meta_id):
+def fetch_data(_account, time_params_tuple, _meta_id):
     """
-    Busca campanhas via Meta API.
-    _meta_id é passado apenas para compor a chave de cache (ex: 'act_123456').
-    _account é prefixado com _ para o Streamlit não tentar hasheá-lo.
+    Busca campanhas Meta Ads para um único cliente.
+
+    time_params_tuple : tuple de pares (ex: (('date_preset','last_30d'),))
+                        — tipo hashable, obrigatório para o cache funcionar.
+                        Dicts são silenciosamente ignorados pelo st.cache_data.
+    _meta_id          : string da conta (ex: 'act_123456'), entra na chave de cache.
+    _account          : prefixado com _ → Streamlit não tenta fazer hash do objeto.
     """
+    time_range_params = dict(time_params_tuple)   # converte de volta para dict internamente
     fields = [
         'campaign_name', 'campaign_id',
         'impressions', 'clicks', 'spend', 'reach',
@@ -763,20 +768,18 @@ def fetch_data(_account, time_range_params, _meta_id):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_all_clients_data(time_range_params, _period_key):
+def get_all_clients_data(time_params_tuple):
     """
-    Pré-carrega dados Meta Ads de TODOS os 8 clientes de uma só vez.
+    Pré-carrega Meta Ads de TODOS os clientes em um único dict em memória.
 
-    _period_key  : string que identifica o período (ex: 'last_30d' ou
-                   '2026-01-01_2026-01-31') — usada como parte da chave
-                   de cache para invalidar automaticamente quando o
-                   período muda.
+    time_params_tuple : tuple de pares — hashable, obrigatório para o cache.
+                        Ex: (('date_preset', 'last_30d'),)
+                        Muda quando o período muda → invalida o cache automaticamente.
 
-    Retorna dict  { client_name: [rows] | None }
+    Retorna: { client_name: [rows], ... }
 
-    Na primeira abertura: faz 8 chamadas à API (~5-15s total).
-    Nas trocas de cliente subsequentes (dentro de 1h): retorno imediato
-    do cache em memória — zero chamadas à API.
+    Primeira carga : 8 chamadas à API (~10–30s total).
+    Trocas de cliente: retorno imediato do dict em memória — zero API calls.
     """
     token = _secret("META_ACCESS_TOKEN")
     if not token:
@@ -786,8 +789,8 @@ def get_all_clients_data(time_range_params, _period_key):
     all_data = {}
     for client_name, cfg in CLIENTS.items():
         try:
-            account = AdAccount(cfg['meta_id'])
-            rows = fetch_data(account, time_range_params, cfg['meta_id'])
+            _acct = AdAccount(cfg['meta_id'])
+            rows  = fetch_data(_acct, time_params_tuple, cfg['meta_id'])
             all_data[client_name] = rows
         except Exception:
             all_data[client_name] = []
@@ -1529,28 +1532,34 @@ with st.sidebar:
 
 # ─────────────────────────────────────────
 #  CARREGAR DADOS PRINCIPAIS
-#  Todos os 8 clientes são pré-carregados de uma vez.
-#  Trocar de cliente na sidebar é instantâneo — apenas
-#  filtra o dict já em memória, sem novas chamadas à API.
+#  Regra de ouro do st.cache_data:
+#  Argumentos devem ser HASHABLE (str, int, tuple).
+#  Dict NÃO é hashable → cache é silenciosamente ignorado.
+#  Solução: converter time_params para tuple UMA VEZ aqui,
+#  e passar essa tuple para todas as funções cacheadas.
 # ─────────────────────────────────────────
-time_params = build_time_params(period, custom_start, custom_end)
-mi          = get_month_intelligence()
+time_params       = build_time_params(period, custom_start, custom_end)
+time_params_tuple = tuple(sorted(time_params.items()))   # hashable para cache
+mi                = get_month_intelligence()
 
-# Chave de período para cache (hashable)
-if period == "Personalizado" and custom_start and custom_end:
-    _period_key = f"{custom_start}_{custom_end}"
-else:
-    _period_key = period
-
-# Carrega todos os clientes (cache hit instantâneo após 1ª carga)
+# ── Pré-carga global (cache miss = 1ª abertura ou mudança de período) ──
+# Após a 1ª carga: trocar de cliente é instantâneo — zero chamadas à API.
+_cache_start = time.time()
 with st.spinner("📡 Carregando dados de todos os clientes..."):
-    _all_clients_data = get_all_clients_data(time_params, _period_key)
+    _all_clients_data = get_all_clients_data(time_params_tuple)
+_cache_elapsed = time.time() - _cache_start
 
-# Filtra o cliente selecionado — sem chamada à API
+# ── Indicador de cache (temporário — remove depois de validar) ──────
+if _cache_elapsed < 0.5:
+    st.sidebar.success(f"✅ Cache hit ({_cache_elapsed:.2f}s)")
+else:
+    st.sidebar.info(f"🔄 Cache miss — dados carregados em {_cache_elapsed:.1f}s")
+
+# ── Filtra cliente selecionado — apenas dict lookup, sem API ────────
 data = _all_clients_data.get(selected_client) or []
 
-# Agora reconstrói account só para funções que precisam do objeto
-# (criativos, imagens) — sem impacto nas trocas de cliente
+# account reconstruído apenas para abas que precisam do objeto Meta
+# (criativos/imagens) — não afeta trocas de cliente
 client_meta_id = CLIENTS[selected_client]['meta_id']
 account        = get_account_for_client(client_meta_id)
 
@@ -2413,8 +2422,7 @@ with tab_creatives:
     """, unsafe_allow_html=True)
 
     with st.spinner("🎨 Buscando métricas de criativos..."):
-        tp_tuple       = tuple(sorted(time_params.items()))
-        creatives_data = fetch_creative_insights(account, tp_tuple)
+        creatives_data = fetch_creative_insights(account, time_params_tuple)
 
     if not creatives_data:
         st.warning("⚠️ Nenhum dado de criativos encontrado para o período.")
