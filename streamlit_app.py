@@ -709,92 +709,152 @@ def get_account_for_client(meta_id):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_data(_account, time_params_tuple, _meta_id):
+def _fetch_one_client_period(meta_id, preset):
     """
-    Busca campanhas Meta Ads para um único cliente.
-
-    time_params_tuple : tuple de pares (ex: (('date_preset','last_30d'),))
-                        — tipo hashable, obrigatório para o cache funcionar.
-                        Dicts são silenciosamente ignorados pelo st.cache_data.
-    _meta_id          : string da conta (ex: 'act_123456'), entra na chave de cache.
-    _account          : prefixado com _ → Streamlit não tenta fazer hash do objeto.
-    """
-    time_range_params = dict(time_params_tuple)   # converte de volta para dict internamente
-    fields = [
-        'campaign_name', 'campaign_id',
-        'impressions', 'clicks', 'spend', 'reach',
-        'cpc', 'cpm', 'ctr',
-        'actions', 'action_values',
-        'cost_per_action_type', 'purchase_roas', 'frequency',
-    ]
-    params = {'level': 'campaign', 'limit': 100}
-    params.update(time_range_params)
-    insights = _account.get_insights(fields=fields, params=params)
-    rows = []
-    for ins in list(insights):
-        spend       = float(ins.get('spend', 0))
-        impressions = int(ins.get('impressions', 0))
-        clicks      = int(ins.get('clicks', 0))
-        reach       = int(ins.get('reach', 0))
-        purchases, conv_val, cpa, roas_v = 0, 0.0, 0.0, 0.0
-        for a in (ins.get('actions') or []):
-            if a['action_type'] == 'purchase':
-                purchases = int(a['value']); break
-        for av in (ins.get('action_values') or []):
-            if av['action_type'] == 'purchase':
-                conv_val = float(av['value']); break
-        for cp in (ins.get('cost_per_action_type') or []):
-            if cp['action_type'] == 'purchase':
-                cpa = float(cp['value']); break
-        for pr in (ins.get('purchase_roas') or []):
-            if pr['action_type'] == 'omni_purchase':
-                roas_v = float(pr['value']); break
-        if cpa == 0 and purchases > 0:
-            cpa = spend / purchases
-        if roas_v == 0 and spend > 0 and conv_val > 0:
-            roas_v = conv_val / spend
-        rows.append({
-            'name': ins.get('campaign_name', 'N/A'),
-            'spend': spend, 'impressions': impressions,
-            'clicks': clicks, 'reach': reach,
-            'ctr': float(ins.get('ctr', 0)),
-            'cpc': float(ins.get('cpc', 0)),
-            'cpm': float(ins.get('cpm', 0)),
-            'purchases': purchases, 'conv_val': conv_val,
-            'cpa': cpa, 'roas': roas_v,
-            'freq': float(ins.get('frequency', 0)),
-        })
-    return rows
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_all_clients_data(time_params_tuple):
-    """
-    Pré-carrega Meta Ads de TODOS os clientes em um único dict em memória.
-
-    time_params_tuple : tuple de pares — hashable, obrigatório para o cache.
-                        Ex: (('date_preset', 'last_30d'),)
-                        Muda quando o período muda → invalida o cache automaticamente.
-
-    Retorna: { client_name: [rows], ... }
-
-    Primeira carga : 8 chamadas à API (~10–30s total).
-    Trocas de cliente: retorno imediato do dict em memória — zero API calls.
+    Busca campanhas de UM cliente para UM preset de período.
+    Dois argumentos simples (str) → cache sempre funciona.
+    Chamada interna — não usar diretamente.
     """
     token = _secret("META_ACCESS_TOKEN")
     if not token:
-        return {}
-    FacebookAdsApi.init(access_token=token)
+        return []
+    try:
+        FacebookAdsApi.init(access_token=token)
+        _acct  = AdAccount(meta_id)
+        params = {'level': 'campaign', 'limit': 100}
+        if preset == 'today':
+            today = date.today().isoformat()
+            params['time_range'] = {'since': today, 'until': today}
+        elif preset == 'yesterday':
+            y = (date.today() - timedelta(days=1)).isoformat()
+            params['time_range'] = {'since': y, 'until': y}
+        elif preset.startswith('custom_'):
+            # formato: custom_YYYY-MM-DD_YYYY-MM-DD
+            parts = preset[7:].split('_')   # remove 'custom_'
+            params['time_range'] = {'since': parts[0], 'until': parts[1]}
+        else:
+            params['date_preset'] = preset   # last_7d, last_30d, this_month
+        fields = [
+            'campaign_name', 'impressions', 'clicks', 'spend', 'reach',
+            'cpc', 'cpm', 'ctr', 'frequency',
+            'actions', 'action_values', 'cost_per_action_type', 'purchase_roas',
+        ]
+        rows = []
+        for ins in list(_acct.get_insights(fields=fields, params=params)):
+            spend       = float(ins.get('spend', 0))
+            impressions = int(ins.get('impressions', 0))
+            clicks      = int(ins.get('clicks', 0))
+            reach       = int(ins.get('reach', 0))
+            purchases, conv_val, cpa, roas_v = 0, 0.0, 0.0, 0.0
+            for a in (ins.get('actions') or []):
+                if a['action_type'] == 'purchase':
+                    purchases = int(a['value']); break
+            for av in (ins.get('action_values') or []):
+                if av['action_type'] == 'purchase':
+                    conv_val = float(av['value']); break
+            for cp in (ins.get('cost_per_action_type') or []):
+                if cp['action_type'] == 'purchase':
+                    cpa = float(cp['value']); break
+            for pr in (ins.get('purchase_roas') or []):
+                if pr['action_type'] == 'omni_purchase':
+                    roas_v = float(pr['value']); break
+            if cpa == 0 and purchases > 0:
+                cpa = spend / purchases
+            if roas_v == 0 and spend > 0 and conv_val > 0:
+                roas_v = conv_val / spend
+            rows.append({
+                'name': ins.get('campaign_name', 'N/A'),
+                'spend': spend, 'impressions': impressions,
+                'clicks': clicks, 'reach': reach,
+                'ctr': float(ins.get('ctr', 0)),
+                'cpc': float(ins.get('cpc', 0)),
+                'cpm': float(ins.get('cpm', 0)),
+                'purchases': purchases, 'conv_val': conv_val,
+                'cpa': cpa, 'roas': roas_v,
+                'freq': float(ins.get('frequency', 0)),
+            })
+        return rows
+    except Exception:
+        return []
 
-    all_data = {}
+
+# Presets fixos disponíveis para pré-carga
+_PRESETS = ['today', 'yesterday', 'last_7d', 'last_30d', 'this_month']
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_data_from_google():
+    """
+    ╔══════════════════════════════════════════════════════════════╗
+    ║  CACHE GLOBAL — zero parâmetros                             ║
+    ║                                                              ║
+    ║  Baixa de uma vez: 8 clientes × 5 períodos = 40 chamadas   ║
+    ║  Resultado em memória por 1 hora (TTL=3600).                ║
+    ║                                                              ║
+    ║  Trocar de cliente  → filtro em memória (<1ms)              ║
+    ║  Trocar de período  → filtro em memória (<1ms)              ║
+    ║  Botão Atualizar    → st.cache_data.clear() força nova carga║
+    ╚══════════════════════════════════════════════════════════════╝
+
+    Retorna:
+        {
+          'meta': {
+              client_name: {
+                  preset: [rows],   # ex: {'last_30d': [...], 'today': [...]}
+              }
+          },
+          'gps':  { client_name: (dict_cells | None, err | None) },
+          'gads': { client_name: (data | None,        err | None) },
+          '_loaded_at': datetime_str,
+        }
+    """
+    result = {'meta': {}, 'gps': {}, 'gads': {}, '_loaded_at': datetime.now().strftime('%d/%m %H:%M')}
+
+    # ── Meta Ads: 8 clientes × 5 presets ──────────────────────────
     for client_name, cfg in CLIENTS.items():
-        try:
-            _acct = AdAccount(cfg['meta_id'])
-            rows  = fetch_data(_acct, time_params_tuple, cfg['meta_id'])
-            all_data[client_name] = rows
-        except Exception:
-            all_data[client_name] = []
-    return all_data
+        result['meta'][client_name] = {}
+        for preset in _PRESETS:
+            result['meta'][client_name][preset] = _fetch_one_client_period(
+                cfg['meta_id'], preset
+            )
+
+    # ── Google Sheets — GPS cells (já cacheado individualmente) ───
+    for client_name in CLIENTS:
+        cells, err = fetch_gps_cells(client_name)
+        result['gps'][client_name] = (cells, err)
+
+    # ── Google Ads manual ──────────────────────────────────────────
+    for client_name in CLIENTS:
+        gads, err = fetch_gads_data(client_name)
+        result['gads'][client_name] = (gads, err)
+
+    return result
+
+
+def filter_client_data(all_data, client_name, period, custom_start=None, custom_end=None):
+    """
+    Filtra dados já em memória para o cliente e período escolhidos.
+    Sem API, sem I/O — puro dict lookup.
+    Retorna lista de rows idêntica ao formato antigo de fetch_data.
+    """
+    _choice_map = {
+        'Hoje':            'today',
+        'Ontem':           'yesterday',
+        'Últimos 7 dias':  'last_7d',
+        'Últimos 30 dias': 'last_30d',
+        'Mês Atual':       'this_month',
+    }
+    preset = _choice_map.get(period)
+
+    if period == 'Personalizado' and custom_start and custom_end:
+        # Período personalizado: fetch pontual cacheado por meta_id + datas
+        meta_id = CLIENTS[client_name]['meta_id']
+        return _fetch_one_client_period(
+            meta_id,
+            f"custom_{custom_start}_{custom_end}"
+        )
+
+    return all_data['meta'].get(client_name, {}).get(preset or 'last_30d', [])
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1532,36 +1592,33 @@ with st.sidebar:
 
 # ─────────────────────────────────────────
 #  CARREGAR DADOS PRINCIPAIS
-#  Regra de ouro do st.cache_data:
-#  Argumentos devem ser HASHABLE (str, int, tuple).
-#  Dict NÃO é hashable → cache é silenciosamente ignorado.
-#  Solução: converter time_params para tuple UMA VEZ aqui,
-#  e passar essa tuple para todas as funções cacheadas.
+#  load_data_from_google() não recebe parâmetros.
+#  O cache não quebra nunca — nem por cliente, nem por período.
+#  Loading aparece 1× na abertura. Todo clique depois é instantâneo.
 # ─────────────────────────────────────────
-time_params       = build_time_params(period, custom_start, custom_end)
-time_params_tuple = tuple(sorted(time_params.items()))   # hashable para cache
-mi                = get_month_intelligence()
+mi = get_month_intelligence()
 
-# ── Pré-carga global (cache miss = 1ª abertura ou mudança de período) ──
-# Após a 1ª carga: trocar de cliente é instantâneo — zero chamadas à API.
-_cache_start = time.time()
-with st.spinner("📡 Carregando dados de todos os clientes..."):
-    _all_clients_data = get_all_clients_data(time_params_tuple)
-_cache_elapsed = time.time() - _cache_start
+_t0 = time.time()
+with st.spinner("📡 Carregando dados..."):
+    _all_data = load_data_from_google()
+_elapsed = time.time() - _t0
 
-# ── Indicador de cache (temporário — remove depois de validar) ──────
-if _cache_elapsed < 0.5:
-    st.sidebar.success(f"✅ Cache hit ({_cache_elapsed:.2f}s)")
+# Indicador de cache na sidebar (remove quando confirmar que funciona)
+if _elapsed < 1.0:
+    st.sidebar.success(f"✅ Cache ativo ({_elapsed:.2f}s)")
 else:
-    st.sidebar.info(f"🔄 Cache miss — dados carregados em {_cache_elapsed:.1f}s")
+    st.sidebar.info(f"🔄 Carga inicial concluída em {_elapsed:.0f}s")
 
-# ── Filtra cliente selecionado — apenas dict lookup, sem API ────────
-data = _all_clients_data.get(selected_client) or []
+# Filtra cliente + período em memória — zero chamadas à API
+data = filter_client_data(_all_data, selected_client, period, custom_start, custom_end)
 
-# account reconstruído apenas para abas que precisam do objeto Meta
-# (criativos/imagens) — não afeta trocas de cliente
+# account necessário apenas para criativos (aba 03)
 client_meta_id = CLIENTS[selected_client]['meta_id']
 account        = get_account_for_client(client_meta_id)
+
+# time_params ainda necessário para criativos (fetch_creative_insights)
+time_params       = build_time_params(period, custom_start, custom_end)
+time_params_tuple = tuple(sorted(time_params.items()))
 
 if not data:
     st.warning("⚠️ Nenhum dado encontrado para o período selecionado.")
