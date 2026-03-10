@@ -896,7 +896,7 @@ def get_gspread_client():
     )
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=7200, show_spinner=False)
 def fetch_gps_data(client_name):
     """Lê a aba GPS completa (para a Aba 04 — tabela raw)."""
     try:
@@ -910,15 +910,18 @@ def fetch_gps_data(client_name):
             if not spreadsheet:
                 env_key = SHEET_ENV_KEYS.get(client_name, 'SHEET_ID_' + client_name.upper().replace(' ','_').replace('.','_'))
                 return None, f"Planilha não encontrada. Adicione `{env_key}=ID` no .env"
-        try:
-            worksheet = spreadsheet.worksheet(GPS_SHEET_TAB)
-        except gspread.exceptions.WorksheetNotFound:
-            all_tabs = [ws.title for ws in spreadsheet.worksheets()]
-            gps_tab  = next((t for t in all_tabs if 'GPS' in t.upper()), None)
-            if gps_tab:
-                worksheet = spreadsheet.worksheet(gps_tab)
-            else:
-                return None, f"Aba GPS não encontrada. Abas: {', '.join(all_tabs)}"
+        ws_raw = None
+        for _rname in ['🏆 GPS / 26', 'GPS / 26', '🏆 GPS/26', 'GPS/26', '🏆 GPS 2026', 'GPS 2026']:
+            try:
+                ws_raw = spreadsheet.worksheet(_rname)
+                break
+            except gspread.exceptions.WorksheetNotFound:
+                continue
+            except Exception:
+                return None, f"Erro ao acessar aba GPS de {client_name}"
+        if ws_raw is None:
+            return None, "Aba GPS / 26 não encontrada"
+        worksheet = ws_raw
         data = worksheet.get_all_values()
         if not data:
             return None, "Aba GPS está vazia"
@@ -927,7 +930,7 @@ def fetch_gps_data(client_name):
         return None, str(e)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=7200, show_spinner=False)
 def fetch_gps_cells(client_name):
     """
     Lê células fixas da coluna D nas abas GPS e Análise Perfor.
@@ -1052,97 +1055,46 @@ def fetch_gps_cells(client_name):
     if err:
         return None, err
 
-    # ── 4. Localizar aba GPS — direto pelo nome, fallback em lista ──
+    # ── 4. Abrir aba GPS — acesso DIRETO, zero worksheets() ──────────
     #
-    # Estratégia anti-cota:
-    #   Tentativa DIRETA (0 hits extras de API): chama worksheet(nome)
-    #   diretamente para cada candidato em ordem de probabilidade.
-    #   Só chama spreadsheet.worksheets() (1 hit extra) se todas as
-    #   tentativas diretas falharem — isso reduz o consumo de cota
-    #   de 2 hits/cliente para 1 hit/cliente no caso feliz.
+    # REGRA: nunca chamar spreadsheet.worksheets() — consome cota de
+    # metadados mesmo sem ler dados. Tentamos cada nome diretamente;
+    # WorksheetNotFound não gasta cota extra (é só 404 local).
+    # Se nenhum nome funcionar → retorna silenciosamente, portfólio
+    # pula este cliente sem travar o dashboard.
     #
-    # Ordem de prioridade (sempre 2026, nunca 2023/24/25):
-    #   D1) Nome exato '🏆 GPS / 26'          ← acerta ~95% dos casos
-    #   D2) Variantes diretas sem listar abas  ← acerta os outros 5%
-    #   F1-F4) Fallback via worksheets()       ← só se D1+D2 falharem
+    # Cache TTL=7200s: este bloco roda no máximo 1× a cada 2 horas.
 
-    def _tab_clean(title):
-        return re.sub(r'[^\x00-\x7F]', '', title).strip().upper()
-
-    def _tab_has_year_26(title):
-        _c = _tab_clean(title)
-        return '2026' in _c or '/ 26' in _c or '/26' in _c or _c.endswith('26')
-
-    def _tab_has_wrong_year(title):
-        _c = _tab_clean(title)
-        return any(w in _c for w in ('2023','/ 23','/23','2024','/ 24','/24','2025','/ 25','/25'))
-
-    def _tab_has_gps(title):
-        return 'GPS' in _tab_clean(title)
-
-    ws_gps       = None
-    gps_tab_name = ''
-
-    # ── Tentativas DIRETAS (sem listar todas as abas = 0 hits extras) ──
-    _direct_names = [
-        '🏆 GPS / 26',     # nome canônico
-        'GPS / 26',        # sem emoji
-        '🏆 GPS/26',       # barra colada
+    _GPS_NAMES = [
+        '🏆 GPS / 26',   # nome padrão — cobre ~99% dos casos
+        'GPS / 26',
+        '🏆 GPS/26',
         'GPS/26',
         '🏆 GPS 2026',
         'GPS 2026',
     ]
-    for _name in _direct_names:
+
+    ws_gps       = None
+    gps_tab_name = ''
+
+    for _name in _GPS_NAMES:
         try:
             ws_gps       = spreadsheet.worksheet(_name)
             gps_tab_name = _name
             break
         except gspread.exceptions.WorksheetNotFound:
-            continue
-        except Exception:
-            break   # erro de rede/cota — não continuar tentando
+            continue   # tenta próximo nome, sem custo de cota
+        except Exception as _ex:
+            return None, f"Erro ao abrir aba GPS de {client_name}: {_ex}"
 
-    # ── Fallback: lista todas as abas (1 hit extra) e filtra ─────────
-    # Só entra aqui se NENHUMA tentativa direta achou a aba.
     if ws_gps is None:
-        all_ws         = spreadsheet.worksheets()   # 1 chamada de API
-        all_tab_titles = [w.title for w in all_ws]
+        return None, (
+            f"Aba GPS / 26 não encontrada para **{client_name}**. "
+            f"Nomes tentados: {_GPS_NAMES}"
+        )
 
-        # F2: GPS + ano 26 + emoji 🏆
-        for _ws in all_ws:
-            if (_tab_has_gps(_ws.title)
-                    and _tab_has_year_26(_ws.title)
-                    and '\U0001f3c6' in _ws.title):
-                ws_gps, gps_tab_name = _ws, _ws.title
-                break
-
-        # F3: GPS + ano 26 (sem emoji)
-        if ws_gps is None:
-            for _ws in all_ws:
-                if _tab_has_gps(_ws.title) and _tab_has_year_26(_ws.title):
-                    ws_gps, gps_tab_name = _ws, _ws.title
-                    break
-
-        # F4: GPS sem ano — só aceita se não tiver ano errado
-        if ws_gps is None:
-            for _ws in all_ws:
-                if _tab_has_gps(_ws.title) and not _tab_has_wrong_year(_ws.title):
-                    ws_gps, gps_tab_name = _ws, _ws.title
-                    break
-
-        if ws_gps is None:
-            _gps_tabs = [t for t in all_tab_titles if _tab_has_gps(t)]
-            return None, (
-                f"Aba GPS de 2026 nao encontrada para **{client_name}**.\n"
-                f"Abas com 'GPS': `{'`, `'.join(_gps_tabs) or 'nenhuma'}`\n"
-                f"Todas as abas: `{'`, `'.join(all_tab_titles)}`"
-            )
-
-    # ── Delay entre clientes (evita estouro de cota no loop) ─────────
-    # O sleep fica AQUI, depois de achar a aba e antes de ler os dados,
-    # para dar respiro à API entre chamadas de clientes distintos.
-    # (O cache de 3600s garante que este código só roda 1x/hora.)
-    time.sleep(2)
+    # Delay fixo: 3s de respiro antes de ler os dados
+    time.sleep(3)
 
     # ── 5. Ler todos os valores ───────────────────────────────────
     gps_all, err = _read_retry(ws_gps)
@@ -1206,33 +1158,25 @@ def fetch_gps_cells(client_name):
         'col_scores':        str(_col_scores),
     }
 
-    # ── 9. Aba Análise Perfor (opcional — tentativa direta) ──────────
+    # ── 9. Aba Análise Perfor (opcional — acesso direto, sem worksheets()) ─
     analise_kpis = {}
     try:
         ws_analise = None
-        # Tentativa direta (sem listar abas)
-        _analise_names = [ANALISE_SHEET_TAB, 'Análise Perfor', 'Analise Perfor',
-                          '🔍 Análise Perfor', 'Análise', 'Perfor']
-        for _aname in _analise_names:
+        _ANALISE_NAMES = [
+            ANALISE_SHEET_TAB,      # '🔍 Análise Perfor'
+            'Análise Perfor',
+            'Analise Perfor',
+            '🔍 Análise Perfor',
+            'Análise',
+        ]
+        for _aname in _ANALISE_NAMES:
             try:
                 ws_analise = spreadsheet.worksheet(_aname)
                 break
             except gspread.exceptions.WorksheetNotFound:
                 continue
             except Exception:
-                break
-
-        # Fallback: buscar por substring (só se tentativa direta falhou)
-        if ws_analise is None:
-            try:
-                _all_ws_a = spreadsheet.worksheets()
-                for _ws in _all_ws_a:
-                    _clean = re.sub(r'[^\x00-\x7F]', '', _ws.title).strip().upper()
-                    if 'ANALISE' in _clean or 'PERFOR' in _clean:
-                        ws_analise = _ws
-                        break
-            except Exception:
-                pass
+                break   # erro de cota/rede — pula silenciosamente
 
         if ws_analise is not None:
             analise_all, _ = _read_retry(ws_analise)
@@ -1297,7 +1241,7 @@ def fetch_gads_data(client_name):
         try:
             worksheet = spreadsheet.worksheet(GADS_SHEET_TAB)
         except gspread.exceptions.WorksheetNotFound:
-            all_tabs = [ws.title for ws in spreadsheet.worksheets()]
+            # worksheets() removed — direct tab access only
             gads_tab = next((t for t in all_tabs if 'GOOGLE' in t.upper() or 'ADS' in t.upper() or 'GADS' in t.upper()), None)
             if gads_tab:
                 worksheet = spreadsheet.worksheet(gads_tab)
@@ -1344,7 +1288,7 @@ def fetch_portfolio_dash():
     try:
         ws = master.worksheet(DASH_SHEET_NAME)     # 'dados_manuais'
     except gspread.exceptions.WorksheetNotFound:
-        all_tabs = [w.title for w in master.worksheets()]
+        all_tabs = []  # worksheets() removed — tab listing disabled
         return None, (
             f"Aba **`{DASH_SHEET_NAME}`** não encontrada na planilha `{master.title}`.\n\n"
             f"Abas disponíveis: {', '.join(all_tabs)}"
@@ -1573,6 +1517,12 @@ with tab_portfolio:
             f'</p>',
             unsafe_allow_html=True
         )
+        # Delay no início de cada cliente: 3s entre open_by_key + worksheet().
+        # O sleep(3) dentro de fetch_gps_cells cobre o get_all_values.
+        # Total: ~6s × 8 clientes = ~48s de carga inicial (só no cache miss;
+        # TTL=7200s → roda no máximo 1× a cada 2 horas).
+        if _idx > 0:
+            time.sleep(3)
         _cells, _err = fetch_gps_cells(_client)
         if _err:
             _is_quota = ('429' in str(_err) or 'cota' in str(_err).lower()
@@ -1585,11 +1535,7 @@ with tab_portfolio:
                 _cells['roas'] = _cells['fat_real'] / _cells['inv_total']
             gps_results[_client] = _cells
 
-        # O sleep principal está dentro de fetch_gps_cells (2s após achar a aba).
-        # Este intervalo extra de 0.5s espaça as chamadas open_by_key entre clientes.
-        # Total por cliente: ~2.5s → 8 clientes = ~20s de carga inicial (só no cache miss).
-        if _idx < _n_clients - 1:
-            time.sleep(0.5)
+        # (sleep movido para o início do próximo ciclo — ver acima)
 
     _prog_bar.progress(100)
     _prog_bar.empty()
