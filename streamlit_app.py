@@ -1086,22 +1086,25 @@ def fetch_gps_data(client_name):
         return None, str(e)
 
 
-@st.cache_data(ttl=7200, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_gps_cells(client_name):
     """
     Lê células fixas da coluna D nas abas GPS e Análise Perfor.
 
-    Índices confirmados (0-based, Python):
-      GPS_ROW_FAT   = 5  → Linha 6  (D6)  — Faturamento Realizado
-      GPS_ROW_INV   = 13 → Linha 14 (D14) — Investimento Total
-      GPS_ROW_ATING = 33 → Linha 34 (D34) — Atingimento de Meta
-      GPS_ROW_CPS   = 20 → Linha 21 (D21) — CPS Pago
-      GPS_ROW_TICKET= 22 → Linha 23 (D23) — Ticket Médio
-      GPS_ROW_CONV  = 23 → Linha 24 (D24) — Taxa de Conversão
+    Coordenadas 0-based DEFINITIVAS (confirmadas pelo processo Rober):
 
-    Coluna D = índice 3 fixo (0-based).
-    A função também faz varredura de fallback para encontrar a
-    coluna D correta caso a planilha tenha células mescladas/vazias.
+    Aba GPS / 26 — linhas fixas (mesma para todos os clientes):
+      idx  5  → Linha  6 — Receita Captada      (GPS_ROW_REC_CAPTADA)
+      idx  6  → Linha  7 — Receita Faturada     (GPS_ROW_REC_FATURADA)
+      idx 14  → Linha 15 — Investimento Total   (GPS_ROW_INV_TOTAL)
+      idx 18  → Linha 19 — Pedidos Pagos        (GPS_ROW_PEDIDOS)
+
+    Aba GPS / 26 — KPIs por busca de label (cols A/B/C):
+      Realizado  : faixa idx  4–38
+      Metas      : faixa idx 65–86
+      Labels: 'custo por sessao', 'taxa de conversao', 'ticket medio'
+
+    col_idx = mês atual (Jan=1, Fev=2, Mar=3 …)
 
     Retorna (dict, None) em sucesso ou (None, str_erro) em falha.
     O dict sempre inclui 'debug_info' com dump completo das linhas
@@ -1295,6 +1298,22 @@ def fetch_gps_cells(client_name):
     inv_total_r    = _parse_safe(raw_inv_total_r)
     pedidos_r      = _parse_safe(raw_pedidos)
 
+    # ── Dump explícito das 3 linhas críticas para debug no Cloud ─
+    # Garante que os valores no dict reflitam EXATAMENTE as células
+    # idx 5/6/18 da coluna col_idx — sem intermediários.
+    _debug_critico = {
+        'idx5_rec_captada':  f'raw={raw_rec_captada!r}  parsed={rec_captada_r}',
+        'idx6_rec_faturada': f'raw={raw_rec_faturada!r} parsed={rec_faturada_r}',
+        'idx14_inv_total':   f'raw={raw_inv_total_r!r}  parsed={inv_total_r}',
+        'idx18_pedidos':     f'raw={raw_pedidos!r}      parsed={pedidos_r}',
+        'col_idx_usado':     col_idx,
+        'col_letra':         col_letter,
+        'row5_dump':         _row_dump(gps_all,  5),
+        'row6_dump':         _row_dump(gps_all,  6),
+        'row14_dump':        _row_dump(gps_all, 14),
+        'row18_dump':        _row_dump(gps_all, 18),
+    }
+
     # ── 8. Debug info completo ────────────────────────────────────
     _col_scores = {col_idx: 4}
     debug_info = {
@@ -1402,6 +1421,7 @@ def fetch_gps_cells(client_name):
         'analise':        analise_kpis,
         'client_name':    client_name,
         'debug_info':     debug_info,
+        'debug_critico':  _debug_critico,
     }, None
 
 
@@ -3084,6 +3104,44 @@ with tab_config:
             </p>
         </div>
         """, unsafe_allow_html=True)
+
+    # ── 🔬 Debug: células críticas lidas do GPS ───────────────────
+    st.markdown("---")
+    st.markdown(f"#### 🔬 Debug — Células Críticas GPS ({selected_client})")
+    st.caption(
+        "Mostra exatamente o que foi lido da planilha nas linhas idx 5/6/14/18. "
+        "Use para confirmar coordenadas em produção."
+    )
+    _dbg_cells, _ = _all_data['gps'].get(selected_client, ({}, None))
+    _dbg = (_dbg_cells or {}).get('debug_critico', {})
+    if _dbg:
+        _dbg_rows = [
+            ("idx 5  → Rec. Captada",  _dbg.get('idx5_rec_captada',  '—')),
+            ("idx 6  → Rec. Faturada", _dbg.get('idx6_rec_faturada', '—')),
+            ("idx 14 → Inv. Total",    _dbg.get('idx14_inv_total',   '—')),
+            ("idx 18 → Pedidos Pagos", _dbg.get('idx18_pedidos',     '—')),
+            ("Coluna usada",           f"idx {_dbg.get('col_idx_usado','?')} ({_dbg.get('col_letra','?')})"),
+        ]
+        _dbg_html = f'<div style="background:{C["card2"]}; border:1px solid {C["border"]}; border-radius:10px; padding:16px; font-family:monospace; font-size:0.78rem">'
+        for _lbl, _val in _dbg_rows:
+            _color = MINT if 'parsed=' in str(_val) and 'parsed=0' not in str(_val) else C['orange']
+            _dbg_html += (
+                f'<div style="padding:4px 0; border-bottom:1px solid {C["border"]}">'
+                f'<span style="color:{C["dim"]}; min-width:180px; display:inline-block">{_lbl}</span>'
+                f'<span style="color:{_color}">{_val}</span></div>'
+            )
+        # Dump completo das linhas brutas
+        for _k in ['row5_dump', 'row6_dump', 'row14_dump', 'row18_dump']:
+            _v = _dbg.get(_k, '')
+            if _v:
+                _dbg_html += (
+                    f'<div style="padding:3px 0; color:{C["dim"]}; font-size:0.72rem">'
+                    f'<span style="color:{C["orange"]}">{_k}:</span> {_v}</div>'
+                )
+        _dbg_html += '</div>'
+        st.markdown(_dbg_html, unsafe_allow_html=True)
+    else:
+        st.info("⏳ Dados GPS ainda não carregados para este cliente. Aguarde a carga inicial ou clique em Atualizar.")
 
     st.markdown(f"""
     <div style="text-align:center; padding:20px; color:{C['dim']}; font-size:0.75rem; margin-top:20px; border-top:1px solid {C['border']}">
