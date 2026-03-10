@@ -896,7 +896,7 @@ def get_gspread_client():
     )
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_gps_data(client_name):
     """Lê a aba GPS completa (para a Aba 04 — tabela raw)."""
     try:
@@ -927,7 +927,7 @@ def fetch_gps_data(client_name):
         return None, str(e)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_gps_cells(client_name):
     """
     Lê células fixas da coluna D nas abas GPS e Análise Perfor.
@@ -1052,93 +1052,97 @@ def fetch_gps_cells(client_name):
     if err:
         return None, err
 
-    # ── 4. Localizar aba GPS — sempre 2026, nunca anos anteriores ───
+    # ── 4. Localizar aba GPS — direto pelo nome, fallback em lista ──
     #
-    # Regra de ouro: se a planilha tem múltiplas abas GPS (ex: GPS/23,
-    # GPS/24, GPS/26), SEMPRE usar a de 2026. Nunca a mais antiga.
+    # Estratégia anti-cota:
+    #   Tentativa DIRETA (0 hits extras de API): chama worksheet(nome)
+    #   diretamente para cada candidato em ordem de probabilidade.
+    #   Só chama spreadsheet.worksheets() (1 hit extra) se todas as
+    #   tentativas diretas falharem — isso reduz o consumo de cota
+    #   de 2 hits/cliente para 1 hit/cliente no caso feliz.
     #
-    # Ordem de prioridade:
-    #   P1) Nome exato '🏆 GPS / 26'
-    #   P2) Contém 'GPS' E ('26' ou '2026') — com emoji 🏆 preferido
-    #   P3) Contém 'GPS' E ('26' ou '2026') — sem emoji
-    #   P4) [NUNCA] GPS sem ano — descartado para evitar pegar 2023/24
-    #
-    # Identificação de ano: remove emojis e espaços, checa se '26'
-    # ou '2026' está no nome limpo. Um nome com '23', '24', '25'
-    # é considerado ano errado e descartado mesmo contendo 'GPS'.
-
-    all_ws         = spreadsheet.worksheets()
-    all_tab_titles = [w.title for w in all_ws]
+    # Ordem de prioridade (sempre 2026, nunca 2023/24/25):
+    #   D1) Nome exato '🏆 GPS / 26'          ← acerta ~95% dos casos
+    #   D2) Variantes diretas sem listar abas  ← acerta os outros 5%
+    #   F1-F4) Fallback via worksheets()       ← só se D1+D2 falharem
 
     def _tab_clean(title):
-        """Remove emojis e retorna string ASCII upper para comparação."""
         return re.sub(r'[^\x00-\x7F]', '', title).strip().upper()
 
     def _tab_has_year_26(title):
-        """True se o título contém '26' ou '2026' (ano correto)."""
         _c = _tab_clean(title)
         return '2026' in _c or '/ 26' in _c or '/26' in _c or _c.endswith('26')
 
     def _tab_has_wrong_year(title):
-        """True se o título contém um ano claramente errado (23/24/25)."""
         _c = _tab_clean(title)
-        for _wrong in ('2023', '/ 23', '/23', '2024', '/ 24', '/24',
-                       '2025', '/ 25', '/25'):
-            if _wrong in _c:
-                return True
-        return False
+        return any(w in _c for w in ('2023','/ 23','/23','2024','/ 24','/24','2025','/ 25','/25'))
 
     def _tab_has_gps(title):
-        """True se o título contém 'GPS' (depois de remover emojis)."""
         return 'GPS' in _tab_clean(title)
 
     ws_gps       = None
     gps_tab_name = ''
 
-    # P1: nome exato do ano atual
-    for _ws in all_ws:
-        if _ws.title == GPS_SHEET_TAB:   # '🏆 GPS / 26'
-            ws_gps       = _ws
-            gps_tab_name = _ws.title
+    # ── Tentativas DIRETAS (sem listar todas as abas = 0 hits extras) ──
+    _direct_names = [
+        '🏆 GPS / 26',     # nome canônico
+        'GPS / 26',        # sem emoji
+        '🏆 GPS/26',       # barra colada
+        'GPS/26',
+        '🏆 GPS 2026',
+        'GPS 2026',
+    ]
+    for _name in _direct_names:
+        try:
+            ws_gps       = spreadsheet.worksheet(_name)
+            gps_tab_name = _name
             break
+        except gspread.exceptions.WorksheetNotFound:
+            continue
+        except Exception:
+            break   # erro de rede/cota — não continuar tentando
 
-    # P2: GPS + ano 26 + emoji 🏆 (trofeu)
+    # ── Fallback: lista todas as abas (1 hit extra) e filtra ─────────
+    # Só entra aqui se NENHUMA tentativa direta achou a aba.
     if ws_gps is None:
+        all_ws         = spreadsheet.worksheets()   # 1 chamada de API
+        all_tab_titles = [w.title for w in all_ws]
+
+        # F2: GPS + ano 26 + emoji 🏆
         for _ws in all_ws:
             if (_tab_has_gps(_ws.title)
                     and _tab_has_year_26(_ws.title)
-                    and '\U0001f3c6' in _ws.title):   # 🏆
-                ws_gps       = _ws
-                gps_tab_name = _ws.title
+                    and '\U0001f3c6' in _ws.title):
+                ws_gps, gps_tab_name = _ws, _ws.title
                 break
 
-    # P3: GPS + ano 26 (qualquer formato, sem exigir emoji)
-    if ws_gps is None:
-        for _ws in all_ws:
-            if _tab_has_gps(_ws.title) and _tab_has_year_26(_ws.title):
-                ws_gps       = _ws
-                gps_tab_name = _ws.title
-                break
+        # F3: GPS + ano 26 (sem emoji)
+        if ws_gps is None:
+            for _ws in all_ws:
+                if _tab_has_gps(_ws.title) and _tab_has_year_26(_ws.title):
+                    ws_gps, gps_tab_name = _ws, _ws.title
+                    break
 
-    # P4: GPS sem ano identificável — aceita SÓ se não houver nenhuma com ano
-    #     errado na lista (garante que não pegamos 2023 por engano)
-    if ws_gps is None:
-        _candidates_no_year = [
-            _ws for _ws in all_ws
-            if _tab_has_gps(_ws.title) and not _tab_has_wrong_year(_ws.title)
-        ]
-        if _candidates_no_year:
-            ws_gps       = _candidates_no_year[0]
-            gps_tab_name = ws_gps.title
+        # F4: GPS sem ano — só aceita se não tiver ano errado
+        if ws_gps is None:
+            for _ws in all_ws:
+                if _tab_has_gps(_ws.title) and not _tab_has_wrong_year(_ws.title):
+                    ws_gps, gps_tab_name = _ws, _ws.title
+                    break
 
-    if ws_gps is None:
-        # Listar abas GPS encontradas para diagnóstico
-        _gps_tabs = [t for t in all_tab_titles if _tab_has_gps(t)]
-        return None, (
-            f"Aba GPS de 2026 nao encontrada para **{client_name}**.\n"
-            f"Abas com 'GPS' na planilha: `{'`, `'.join(_gps_tabs) or 'nenhuma'}`\n"
-            f"Todas as abas: `{'`, `'.join(all_tab_titles)}`"
-        )
+        if ws_gps is None:
+            _gps_tabs = [t for t in all_tab_titles if _tab_has_gps(t)]
+            return None, (
+                f"Aba GPS de 2026 nao encontrada para **{client_name}**.\n"
+                f"Abas com 'GPS': `{'`, `'.join(_gps_tabs) or 'nenhuma'}`\n"
+                f"Todas as abas: `{'`, `'.join(all_tab_titles)}`"
+            )
+
+    # ── Delay entre clientes (evita estouro de cota no loop) ─────────
+    # O sleep fica AQUI, depois de achar a aba e antes de ler os dados,
+    # para dar respiro à API entre chamadas de clientes distintos.
+    # (O cache de 3600s garante que este código só roda 1x/hora.)
+    time.sleep(2)
 
     # ── 5. Ler todos os valores ───────────────────────────────────
     gps_all, err = _read_retry(ws_gps)
@@ -1202,22 +1206,34 @@ def fetch_gps_cells(client_name):
         'col_scores':        str(_col_scores),
     }
 
-    # ── 9. Aba Análise Perfor (opcional) ─────────────────────────
+    # ── 9. Aba Análise Perfor (opcional — tentativa direta) ──────────
     analise_kpis = {}
     try:
         ws_analise = None
-        # (a) nome exato
-        for _ws in all_ws:
-            if _ws.title == ANALISE_SHEET_TAB:
-                ws_analise = _ws
+        # Tentativa direta (sem listar abas)
+        _analise_names = [ANALISE_SHEET_TAB, 'Análise Perfor', 'Analise Perfor',
+                          '🔍 Análise Perfor', 'Análise', 'Perfor']
+        for _aname in _analise_names:
+            try:
+                ws_analise = spreadsheet.worksheet(_aname)
                 break
-        # (b) contém 'ANALISE' ou 'PERFOR'
+            except gspread.exceptions.WorksheetNotFound:
+                continue
+            except Exception:
+                break
+
+        # Fallback: buscar por substring (só se tentativa direta falhou)
         if ws_analise is None:
-            for _ws in all_ws:
-                _clean = re.sub(r'[^\x00-\x7F]', '', _ws.title).strip().upper()
-                if 'ANALISE' in _clean or 'PERFOR' in _clean:
-                    ws_analise = _ws
-                    break
+            try:
+                _all_ws_a = spreadsheet.worksheets()
+                for _ws in _all_ws_a:
+                    _clean = re.sub(r'[^\x00-\x7F]', '', _ws.title).strip().upper()
+                    if 'ANALISE' in _clean or 'PERFOR' in _clean:
+                        ws_analise = _ws
+                        break
+            except Exception:
+                pass
+
         if ws_analise is not None:
             analise_all, _ = _read_retry(ws_analise)
             if analise_all:
@@ -1569,10 +1585,11 @@ with tab_portfolio:
                 _cells['roas'] = _cells['fat_real'] / _cells['inv_total']
             gps_results[_client] = _cells
 
-        # Intervalo de segurança: 1.2s x 8 clientes = ~10s max
-        # (so quando cache miss; cache de 10min cobre os demais acessos)
+        # O sleep principal está dentro de fetch_gps_cells (2s após achar a aba).
+        # Este intervalo extra de 0.5s espaça as chamadas open_by_key entre clientes.
+        # Total por cliente: ~2.5s → 8 clientes = ~20s de carga inicial (só no cache miss).
         if _idx < _n_clients - 1:
-            time.sleep(1.2)
+            time.sleep(0.5)
 
     _prog_bar.progress(100)
     _prog_bar.empty()
