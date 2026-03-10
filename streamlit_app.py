@@ -808,7 +808,7 @@ def load_data_from_google():
           '_loaded_at': datetime_str,
         }
     """
-    result = {'meta': {}, 'gps': {}, 'gads': {}, '_loaded_at': datetime.now().strftime('%d/%m %H:%M')}
+    result = {'meta': {}, 'gps': {}, 'gps_raw': {}, 'gads': {}, '_loaded_at': datetime.now().strftime('%d/%m %H:%M')}
 
     # ── Meta Ads: 8 clientes × 5 presets ──────────────────────────
     for client_name, cfg in CLIENTS.items():
@@ -822,6 +822,11 @@ def load_data_from_google():
     for client_name in CLIENTS:
         cells, err = fetch_gps_cells(client_name)
         result['gps'][client_name] = (cells, err)
+
+    # ── Google Sheets — GPS raw (tabela completa para aba GPS) ────
+    for client_name in CLIENTS:
+        raw, err = fetch_gps_data(client_name)
+        result['gps_raw'][client_name] = (raw, err)
 
     # ── Google Ads manual ──────────────────────────────────────────
     for client_name in CLIENTS:
@@ -1241,8 +1246,9 @@ def fetch_gps_cells(client_name):
             f"Nomes tentados: {_GPS_NAMES}"
         )
 
-    # Delay fixo: 3s de respiro antes de ler os dados
-    time.sleep(3)
+    # Delay de 1s entre clientes na carga inicial — protege cota Google Sheets.
+    # Só executa 1× por cliente a cada 2h (TTL=7200). Zero impacto no render.
+    time.sleep(1)
 
     # ── 5. Ler todos os valores ───────────────────────────────────
     gps_all, err = _read_retry(ws_gps)
@@ -1717,33 +1723,16 @@ with tab_portfolio:
         )
 
     # ── Buscar dados de cada cliente com intervalo anti-429 ─────────
-    # Cache TTL=600s: na maioria dos reloads nao ha requisicao nova.
-    # Quando o cache expirar, o sleep(1.2) entre planilhas garante
-    # que ficamos abaixo do limite de 60 req/min da Google Sheets API.
+    # ── GPS: lê diretamente do cache global — zero chamadas à API ────
+    # load_data_from_google() já buscou fetch_gps_cells de todos os
+    # clientes na carga inicial. Aqui apenas fazemos dict lookup.
     _n_clients  = len(PORTFOLIO_CLIENTS)
-    _prog_text  = st.empty()
-    _prog_bar   = st.progress(0)
-
     gps_results = {}
     gps_errors  = {}
     gps_quota   = []
 
-    for _idx, _client in enumerate(PORTFOLIO_CLIENTS):
-        _prog_bar.progress(int((_idx / _n_clients) * 100))
-        _prog_text.markdown(
-            f'<p style="color:{C["dim"]}; font-size:0.82rem; margin:0">'
-            f'&#128225; Carregando {_idx+1}/{_n_clients}: '
-            f'<strong style="color:{MINT}">{_client}</strong>&#8230;'
-            f'</p>',
-            unsafe_allow_html=True
-        )
-        # Delay no início de cada cliente: 3s entre open_by_key + worksheet().
-        # O sleep(3) dentro de fetch_gps_cells cobre o get_all_values.
-        # Total: ~6s × 8 clientes = ~48s de carga inicial (só no cache miss;
-        # TTL=7200s → roda no máximo 1× a cada 2 horas).
-        if _idx > 0:
-            time.sleep(3)
-        _cells, _err = fetch_gps_cells(_client)
+    for _client in PORTFOLIO_CLIENTS:
+        _cells, _err = _all_data['gps'].get(_client, (None, 'Dados não encontrados no cache'))
         if _err:
             _is_quota = ('429' in str(_err) or 'cota' in str(_err).lower()
                          or 'quota' in str(_err).lower() or '\u23f3' in str(_err))
@@ -1751,15 +1740,10 @@ with tab_portfolio:
                 gps_quota.append(_client)
             gps_errors[_client] = _err
         else:
-            if _cells['inv_total'] > 0 and _cells['fat_real'] > 0:
+            if _cells and _cells['inv_total'] > 0 and _cells['fat_real'] > 0:
                 _cells['roas'] = _cells['fat_real'] / _cells['inv_total']
-            gps_results[_client] = _cells
-
-        # (sleep movido para o início do próximo ciclo — ver acima)
-
-    _prog_bar.progress(100)
-    _prog_bar.empty()
-    _prog_text.empty()
+            if _cells:
+                gps_results[_client] = _cells
 
     # ── Feedback de erros ──────────────────────────────────────────
     if gps_quota:
@@ -2174,9 +2158,10 @@ with tab_overview:
     </div>
     """, unsafe_allow_html=True)
 
-    # ── Análise Perfor — KPIs de Alavanca (coluna D da aba Análise) ──
-    with st.spinner(f"🔍 Buscando KPIs de Alavanca de {selected_client}..."):
-        _analise_cells, _analise_err = fetch_gps_cells(selected_client)
+    # ── Análise Perfor — KPIs de Alavanca (do cache global) ──────────
+    _analise_cells, _analise_err = _all_data['gps'].get(
+        selected_client, (None, 'Dados não encontrados no cache')
+    )
 
     if _analise_cells and not _analise_err:
         _an = _analise_cells.get('analise', {})
@@ -2581,8 +2566,10 @@ with tab_gps:
     </div>
     """, unsafe_allow_html=True)
 
-    with st.spinner(f"📊 Buscando dados de {selected_client}..."):
-        gps_data, gps_error = fetch_gps_data(selected_client)
+    with st.spinner("📡 Carregando dados..."):
+        gps_data, gps_error = _all_data['gps_raw'].get(
+            selected_client, (None, 'Dados GPS não encontrados no cache')
+        )
 
     if gps_error:
         st.error(f"❌ {gps_error}")
@@ -2630,8 +2617,9 @@ with tab_gads:
     </div>
     """, unsafe_allow_html=True)
 
-    with st.spinner(f"📢 Buscando dados Google Ads de {selected_client}..."):
-        gads_data, gads_error = fetch_gads_data(selected_client)
+    gads_data, gads_error = _all_data['gads'].get(
+        selected_client, (None, 'Dados Google Ads não encontrados no cache')
+    )
 
     def parse_gads_number(v):
         if not v: return 0.0
