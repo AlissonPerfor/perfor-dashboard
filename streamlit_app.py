@@ -2566,10 +2566,9 @@ with tab_gps:
     </div>
     """, unsafe_allow_html=True)
 
-    with st.spinner("📡 Carregando dados..."):
-        gps_data, gps_error = _all_data['gps_raw'].get(
-            selected_client, (None, 'Dados GPS não encontrados no cache')
-        )
+    gps_data, gps_error = _all_data['gps_raw'].get(
+        selected_client, (None, 'Dados GPS não encontrados no cache')
+    )
 
     if gps_error:
         st.error(f"❌ {gps_error}")
