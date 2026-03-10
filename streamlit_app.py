@@ -708,7 +708,6 @@ def get_account_for_client(meta_id):
     return AdAccount(meta_id)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def _fetch_one_client_period(meta_id, preset):
     """
     Busca campanhas de UM cliente para UM preset de período.
@@ -782,31 +781,14 @@ def _fetch_one_client_period(meta_id, preset):
 _PRESETS = ['today', 'yesterday', 'last_7d', 'last_30d', 'this_month']
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def load_data_from_google():
     """
-    ╔══════════════════════════════════════════════════════════════╗
-    ║  CACHE GLOBAL — zero parâmetros                             ║
-    ║                                                              ║
-    ║  Baixa de uma vez: 8 clientes × 5 períodos = 40 chamadas   ║
-    ║  Resultado em memória por 1 hora (TTL=3600).                ║
-    ║                                                              ║
-    ║  Trocar de cliente  → filtro em memória (<1ms)              ║
-    ║  Trocar de período  → filtro em memória (<1ms)              ║
-    ║  Botão Atualizar    → st.cache_data.clear() força nova carga║
-    ╚══════════════════════════════════════════════════════════════╝
+    Carrega todos os dados de todos os clientes.
+    Chamada UMA ÚNICA VEZ por sessão — resultado salvo em
+    st.session_state['dados_globais'].
 
-    Retorna:
-        {
-          'meta': {
-              client_name: {
-                  preset: [rows],   # ex: {'last_30d': [...], 'today': [...]}
-              }
-          },
-          'gps':  { client_name: (dict_cells | None, err | None) },
-          'gads': { client_name: (data | None,        err | None) },
-          '_loaded_at': datetime_str,
-        }
+    Trocar cliente/período/aba → lê session_state, zero API.
+    Botão Atualizar → del session_state → próximo render chama esta função.
     """
     result = {'meta': {}, 'gps': {}, 'gps_raw': {}, 'gads': {}, '_loaded_at': datetime.now().strftime('%d/%m %H:%M')}
 
@@ -838,9 +820,11 @@ def load_data_from_google():
 
 def filter_client_data(all_data, client_name, period, custom_start=None, custom_end=None):
     """
-    Filtra dados já em memória para o cliente e período escolhidos.
-    Sem API, sem I/O — puro dict lookup.
-    Retorna lista de rows idêntica ao formato antigo de fetch_data.
+    Filtra dados já em session_state para o cliente e período escolhidos.
+    Puro dict lookup — zero I/O, zero API.
+
+    Período personalizado: busca pontual cacheada em
+    session_state['dados_custom'][chave] para não repetir a chamada.
     """
     _choice_map = {
         'Hoje':            'today',
@@ -849,17 +833,20 @@ def filter_client_data(all_data, client_name, period, custom_start=None, custom_
         'Últimos 30 dias': 'last_30d',
         'Mês Atual':       'this_month',
     }
-    preset = _choice_map.get(period)
 
     if period == 'Personalizado' and custom_start and custom_end:
-        # Período personalizado: fetch pontual cacheado por meta_id + datas
-        meta_id = CLIENTS[client_name]['meta_id']
-        return _fetch_one_client_period(
-            meta_id,
-            f"custom_{custom_start}_{custom_end}"
-        )
+        _key = f"{client_name}|{custom_start}|{custom_end}"
+        if 'dados_custom' not in st.session_state:
+            st.session_state['dados_custom'] = {}
+        if _key not in st.session_state['dados_custom']:
+            meta_id = CLIENTS[client_name]['meta_id']
+            st.session_state['dados_custom'][_key] = _fetch_one_client_period(
+                meta_id, f"custom_{custom_start}_{custom_end}"
+            )
+        return st.session_state['dados_custom'].get(_key, [])
 
-    return all_data['meta'].get(client_name, {}).get(preset or 'last_30d', [])
+    preset = _choice_map.get(period, 'last_30d')
+    return all_data['meta'].get(client_name, {}).get(preset, [])
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1586,7 +1573,8 @@ with st.sidebar:
     )
     refresh = st.button("🔄 Atualizar Dados", use_container_width=True)
     if refresh:
-        st.cache_data.clear()
+        for _k in ('dados_globais', 'dados_custom', 'images_loaded'):
+            st.session_state.pop(_k, None)
         st.rerun()
 
     st.markdown(
@@ -1596,35 +1584,44 @@ with st.sidebar:
     )
 
 
-# ─────────────────────────────────────────
-#  CARREGAR DADOS PRINCIPAIS
-#  load_data_from_google() não recebe parâmetros.
-#  O cache não quebra nunca — nem por cliente, nem por período.
-#  Loading aparece 1× na abertura. Todo clique depois é instantâneo.
-# ─────────────────────────────────────────
+# ══════════════════════════════════════════════════════════
+#  TRAVA DE MEMÓRIA — session_state
+#
+#  Regra absoluta:
+#    • load_data_from_google() roda APENAS se 'dados_globais'
+#      não existir no session_state (primeira abertura ou após
+#      clicar em "Atualizar Dados").
+#    • Qualquer outro evento (troca de cliente, período, aba)
+#      encontra os dados prontos e não chama API nenhuma.
+#    • Botão "Atualizar Dados" é o ÚNICO que pode limpar o state.
+# ══════════════════════════════════════════════════════════
 mi = get_month_intelligence()
 
-_t0 = time.time()
-with st.spinner("📡 Carregando dados..."):
-    _all_data = load_data_from_google()
-_elapsed = time.time() - _t0
+if 'dados_globais' not in st.session_state:
+    with st.spinner("📡 Carregando dados... (só acontece uma vez por sessão)"):
+        st.session_state['dados_globais'] = load_data_from_google()
 
-# Indicador de cache na sidebar (remove quando confirmar que funciona)
-if _elapsed < 1.0:
-    st.sidebar.success(f"✅ Cache ativo ({_elapsed:.2f}s)")
-else:
-    st.sidebar.info(f"🔄 Carga inicial concluída em {_elapsed:.0f}s")
+# Referência local — leitura, nunca escrita
+_all_data = st.session_state['dados_globais']
 
-# Filtra cliente + período em memória — zero chamadas à API
+# Filtra cliente + período — dict lookup, zero I/O
 data = filter_client_data(_all_data, selected_client, period, custom_start, custom_end)
 
-# account necessário apenas para criativos (aba 03)
+# account necessário apenas para aba de criativos
 client_meta_id = CLIENTS[selected_client]['meta_id']
 account        = get_account_for_client(client_meta_id)
 
-# time_params ainda necessário para criativos (fetch_creative_insights)
+# time_params_tuple necessário para fetch_creative_insights
 time_params       = build_time_params(period, custom_start, custom_end)
 time_params_tuple = tuple(sorted(time_params.items()))
+
+# Timestamp da última carga (para o rodapé da sidebar)
+_loaded_at = _all_data.get('_loaded_at', '—')
+st.sidebar.caption(f"🕐 Dados de {_loaded_at}")
+
+if not data:
+    st.warning("⚠️ Nenhum dado encontrado para o período selecionado.")
+    st.stop()
 
 if not data:
     st.warning("⚠️ Nenhum dado encontrado para o período selecionado.")
