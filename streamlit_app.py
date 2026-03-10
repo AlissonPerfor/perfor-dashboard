@@ -708,7 +708,13 @@ def get_account_for_client(meta_id):
     return AdAccount(meta_id)
 
 
-def fetch_data(account, time_range_params):
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_data(_account, time_range_params, _meta_id):
+    """
+    Busca campanhas via Meta API.
+    _meta_id é passado apenas para compor a chave de cache (ex: 'act_123456').
+    _account é prefixado com _ para o Streamlit não tentar hasheá-lo.
+    """
     fields = [
         'campaign_name', 'campaign_id',
         'impressions', 'clicks', 'spend', 'reach',
@@ -718,7 +724,7 @@ def fetch_data(account, time_range_params):
     ]
     params = {'level': 'campaign', 'limit': 100}
     params.update(time_range_params)
-    insights = account.get_insights(fields=fields, params=params)
+    insights = _account.get_insights(fields=fields, params=params)
     rows = []
     for ins in list(insights):
         spend       = float(ins.get('spend', 0))
@@ -754,6 +760,38 @@ def fetch_data(account, time_range_params):
             'freq': float(ins.get('frequency', 0)),
         })
     return rows
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_all_clients_data(time_range_params, _period_key):
+    """
+    Pré-carrega dados Meta Ads de TODOS os 8 clientes de uma só vez.
+
+    _period_key  : string que identifica o período (ex: 'last_30d' ou
+                   '2026-01-01_2026-01-31') — usada como parte da chave
+                   de cache para invalidar automaticamente quando o
+                   período muda.
+
+    Retorna dict  { client_name: [rows] | None }
+
+    Na primeira abertura: faz 8 chamadas à API (~5-15s total).
+    Nas trocas de cliente subsequentes (dentro de 1h): retorno imediato
+    do cache em memória — zero chamadas à API.
+    """
+    token = _secret("META_ACCESS_TOKEN")
+    if not token:
+        return {}
+    FacebookAdsApi.init(access_token=token)
+
+    all_data = {}
+    for client_name, cfg in CLIENTS.items():
+        try:
+            account = AdAccount(cfg['meta_id'])
+            rows = fetch_data(account, time_range_params, cfg['meta_id'])
+            all_data[client_name] = rows
+        except Exception:
+            all_data[client_name] = []
+    return all_data
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -1491,18 +1529,30 @@ with st.sidebar:
 
 # ─────────────────────────────────────────
 #  CARREGAR DADOS PRINCIPAIS
+#  Todos os 8 clientes são pré-carregados de uma vez.
+#  Trocar de cliente na sidebar é instantâneo — apenas
+#  filtra o dict já em memória, sem novas chamadas à API.
 # ─────────────────────────────────────────
+time_params = build_time_params(period, custom_start, custom_end)
+mi          = get_month_intelligence()
+
+# Chave de período para cache (hashable)
+if period == "Personalizado" and custom_start and custom_end:
+    _period_key = f"{custom_start}_{custom_end}"
+else:
+    _period_key = period
+
+# Carrega todos os clientes (cache hit instantâneo após 1ª carga)
+with st.spinner("📡 Carregando dados de todos os clientes..."):
+    _all_clients_data = get_all_clients_data(time_params, _period_key)
+
+# Filtra o cliente selecionado — sem chamada à API
+data = _all_clients_data.get(selected_client) or []
+
+# Agora reconstrói account só para funções que precisam do objeto
+# (criativos, imagens) — sem impacto nas trocas de cliente
 client_meta_id = CLIENTS[selected_client]['meta_id']
 account        = get_account_for_client(client_meta_id)
-time_params    = build_time_params(period, custom_start, custom_end)
-
-cache_key = f"{selected_client}_{period}_{custom_start}_{custom_end}"
-if 'last_cache_key' not in st.session_state or st.session_state.last_cache_key != cache_key:
-    st.cache_data.clear()
-    st.session_state.last_cache_key = cache_key
-
-with st.spinner(f"📡 Buscando dados de {selected_client}..."):
-    data = fetch_data(account, time_params)
 
 if not data:
     st.warning("⚠️ Nenhum dado encontrado para o período selecionado.")
