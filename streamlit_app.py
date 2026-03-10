@@ -304,16 +304,8 @@ st.markdown(f"""
     font-family: 'Inter', sans-serif;
 }}
 
-/* ── Compactar espaço no topo — mais conteúdo na dobra ── */
-.block-container {{
-    padding-top: 1rem !important;
-    padding-bottom: 1rem !important;
-}}
-section[data-testid="stSidebar"] > div:first-child {{
-    padding-top: 0rem !important;
-}}
-/* Remove espaço extra do header oculto */
-.stApp > header {{ min-height: 0 !important; height: 0 !important; }}
+/* ── Conteúdo principal e sidebar — ver bloco CSS dedicado abaixo ── */
+/* (padding-top e sidebar gaps gerenciados fora do f-string) */
 
 /* ── Tabs — minimalistas, sem numeração ─────────────── */
 .stTabs [data-baseweb="tab-list"] {{
@@ -367,23 +359,10 @@ header button {{
     left: 12px !important; z-index: 999999 !important;
 }}
 
-/* ── Sidebar ─────────────────────────────────────────── */
+/* ── Sidebar base ────────────────────────────────────── */
 section[data-testid="stSidebar"] {{
     background: {C['card']};
     border-right: 1px solid {C['border']};
-}}
-section[data-testid="stSidebar"] > div {{
-    padding-top: 0rem !important;
-}}
-/* Remove a reserva de espaço da navegação padrão do Streamlit */
-[data-testid="stSidebarNav"] {{ display: none !important; }}
-/* Padding e gap do conteúdo da sidebar */
-[data-testid="stSidebarUserContent"] {{
-    padding-top: 0.5rem !important;
-}}
-/* Zera o gap entre todos os blocos verticais da sidebar */
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
-    gap: 0rem !important;
 }}
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stMarkdown li,
@@ -398,16 +377,14 @@ section[data-testid="stSidebar"] .stMarkdown {{
     margin-bottom: 0 !important;
 }}
 section[data-testid="stSidebar"] hr {{
-    margin-top: 0.4rem !important;
-    margin-bottom: 0.4rem !important;
+    margin-top: 0.3rem !important;
+    margin-bottom: 0.3rem !important;
     border-color: {C['border']} !important;
 }}
 .sidebar-logo {{
     text-align: center;
-    padding: 0px 16px 6px;
+    padding: 0 16px 6px;
     border-bottom: 1px solid {C['border']};
-    margin-top: -40px !important;
-    margin-bottom: -20px !important;
 }}
 .sidebar-logo img {{ max-width: 130px; height: auto; }}
 
@@ -673,6 +650,43 @@ header    {{ visibility:hidden; }}
 footer    {{ visibility:hidden; }}
 .stMarkdown, .stMarkdown p, h1, h2, h3, h4 {{ color:{C['text']} !important; }}
 .stMarkdown h3 {{ color:{MINT} !important; }}
+</style>
+""", unsafe_allow_html=True)
+
+# ── CSS dedicado à sidebar e layout — bloco separado sem f-string ──
+# Mantido fora do bloco principal para evitar que as chaves {{ }}
+# do f-string interfiram nos seletores CSS do Streamlit.
+st.markdown("""
+<style>
+    /* 1. Zera padding do topo da sidebar e do conteúdo principal */
+    .stApp [data-testid="stSidebarUserContent"] {
+        padding-top: 0rem !important;
+    }
+    .stApp .block-container {
+        padding-top: 1rem !important;
+    }
+
+    /* 2. Remove o espaço de navegação padrão do Streamlit */
+    [data-testid="stSidebarNav"] {
+        display: none !important;
+    }
+
+    /* 3. Compacta o gap vertical entre widgets da sidebar */
+    [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
+        gap: 0.5rem !important;
+    }
+
+    /* 4. Sobe a logo para colar no topo — ataca o container nativo do st.image */
+    [data-testid="stSidebar"] [data-testid="stImage"] {
+        margin-top: -50px !important;
+        margin-bottom: -20px !important;
+    }
+
+    /* 5. Remove header fantasma que empurra conteúdo */
+    .stApp > header {
+        min-height: 0 !important;
+        height: 0 !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1409,11 +1423,13 @@ def parse_number(v):
 #  SIDEBAR
 # ─────────────────────────────────────────
 with st.sidebar:
-    # ── Logo ─────────────────────────────────────────────
-    if logo_b64:
+    # ── Logo — usa st.image para que [data-testid="stImage"] funcione ──
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=130)
+    elif logo_b64:
         st.markdown(f"""
-        <div style="margin-top:-40px; margin-bottom:-20px; text-align:center; padding:0 16px 6px; border-bottom:1px solid {C['border']};">
-            <img src="data:image/png;base64,{logo_b64}" alt="Perfor" style="max-width:130px; height:auto;">
+        <div class="sidebar-logo">
+            <img src="data:image/png;base64,{logo_b64}" alt="Perfor">
         </div>
         """, unsafe_allow_html=True)
 
