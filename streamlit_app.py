@@ -306,7 +306,7 @@ st.markdown(f"""
 
 /* ── Compactar espaço no topo — mais conteúdo na dobra ── */
 .block-container {{
-    padding-top: 0.2rem !important;
+    padding-top: 0rem !important;
     padding-bottom: 1rem !important;
 }}
 section[data-testid="stSidebar"] > div:first-child {{
@@ -375,6 +375,13 @@ section[data-testid="stSidebar"] {{
 section[data-testid="stSidebar"] > div {{
     padding-top: 0rem !important;
 }}
+/* Controla o gap interno entre elementos da sidebar */
+[data-testid="stSidebarUserContent"] {{
+    padding-top: 0rem !important;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}}
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stMarkdown li,
 section[data-testid="stSidebar"] label {{
@@ -383,12 +390,22 @@ section[data-testid="stSidebar"] label {{
 section[data-testid="stSidebar"] .stRadio label span {{
     color: {C['text']} !important;
 }}
-.sidebar-logo {{
-    text-align: center; padding: 4px 16px 0px;
-    border-bottom: 1px solid {C['border']};
-    margin-bottom: 25px;
+/* Reduz margens dos elementos markdown na sidebar */
+section[data-testid="stSidebar"] .stMarkdown {{
+    margin-bottom: 0 !important;
 }}
-.sidebar-logo img {{ max-width: 140px; height: auto; }}
+section[data-testid="stSidebar"] hr {{
+    margin-top: 0.3rem !important;
+    margin-bottom: 0.3rem !important;
+}}
+.sidebar-logo {{
+    text-align: center;
+    padding: 0px 16px 8px;
+    border-bottom: 1px solid {C['border']};
+    margin-top: -50px !important;
+    margin-bottom: 8px;
+}}
+.sidebar-logo img {{ max-width: 130px; height: auto; }}
 
 /* ── Hero header ─────────────────────────────────────── */
 .hero-header {{
