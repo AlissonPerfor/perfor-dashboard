@@ -1388,13 +1388,9 @@ def parse_number(v):
 #  SIDEBAR
 # ─────────────────────────────────────────
 with st.sidebar:
-    # ── PASSO 1: CSS injetado de DENTRO da sidebar ────────
-    # Esta é a única técnica garantida no Streamlit Cloud:
-    # o <style> precisa ser renderizado dentro do contexto
-    # da sidebar para que os seletores não sejam bloqueados.
+    # ── CSS injetado de DENTRO da sidebar ─────────────────
     st.markdown("""
 <style>
-    /* Zera o padding nativo que o Streamlit impõe no topo */
     section[data-testid="stSidebar"] > div {
         padding-top: 0rem !important;
     }
@@ -1404,38 +1400,50 @@ with st.sidebar:
     [data-testid="stSidebarUserContent"] {
         padding-top: 0rem !important;
     }
-
-    /* Remove reserva de espaço de navegação multi-page */
     [data-testid="stSidebarNav"] {
         display: none !important;
         height: 0 !important;
         overflow: hidden !important;
     }
-
-    /* Compacta gap vertical entre widgets */
-    [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
-        gap: 0.4rem !important;
+    /* Cola todos os blocos verticais — gap zero */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0rem !important;
     }
+    /* Remove separadores automáticos */
     [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlockSeparator"] {
         display: none !important;
+    }
+    /* Compacta widgets nativos do Streamlit na sidebar */
+    [data-testid="stSidebar"] .stSelectbox,
+    [data-testid="stSidebar"] .stRadio,
+    [data-testid="stSidebar"] .stButton {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    [data-testid="stSidebar"] .stRadio > div {
+        gap: 2px !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-    # ── PASSO 2: Logo como HTML puro com base64 ───────────
-    # st.image() e classes CSS externas são ignoradas no Cloud.
-    # HTML inline com margin-top negativo é o único controle real.
+    # ── Logo base64 ───────────────────────────────────────
     if logo_b64:
         st.markdown(
-            f'<div style="text-align:center; margin-top:-60px; margin-bottom:4px;">'
-            f'<img src="data:image/png;base64,{logo_b64}" width="150" style="display:inline-block;">'
-            f'</div>'
-            f'<hr style="margin:4px 0 8px 0; border:none; border-top:1px solid #262626;">',
+            f'<div style="text-align:center; margin-bottom:6px;">'
+            f'<img src="data:image/png;base64,{logo_b64}" width="140" style="display:inline-block;">'
+            f'</div>',
             unsafe_allow_html=True,
         )
 
     # ── 1. Cliente ────────────────────────────────────────
-    st.markdown("<p style='margin:0 0 4px 0; font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>👤 Cliente</p>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='margin:6px 0 2px 0; font-size:0.7rem; font-weight:700; "
+        "text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>"
+        "👤 Cliente</p>",
+        unsafe_allow_html=True,
+    )
     selected_client = st.selectbox(
         "cliente",
         list(CLIENTS.keys()),
@@ -1443,10 +1451,13 @@ with st.sidebar:
         label_visibility="collapsed",
     )
 
-    st.markdown("<hr style='margin:6px 0; border:none; border-top:1px solid #262626;'>", unsafe_allow_html=True)
-
     # ── 2. Período ───────────────────────────────────────
-    st.markdown("<p style='margin:0 0 4px 0; font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>📅 Período</p>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='margin:8px 0 2px 0; font-size:0.7rem; font-weight:700; "
+        "text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>"
+        "📅 Período</p>",
+        unsafe_allow_html=True,
+    )
     period = st.radio(
         "período",
         ["Hoje", "Ontem", "Últimos 7 dias", "Últimos 30 dias", "Mês Atual", "Personalizado"],
@@ -1456,22 +1467,24 @@ with st.sidebar:
 
     custom_start, custom_end = None, None
     if period == "Personalizado":
-        st.markdown("<hr style='margin:4px 0; border:none; border-top:1px solid #262626;'>", unsafe_allow_html=True)
         custom_start = st.date_input("Data início", value=date.today() - timedelta(days=30))
         custom_end   = st.date_input("Data fim",    value=date.today())
 
-    st.markdown("<hr style='margin:6px 0; border:none; border-top:1px solid #262626;'>", unsafe_allow_html=True)
-
     # ── 3. Ações ─────────────────────────────────────────
-    st.markdown("<p style='margin:0 0 4px 0; font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>⚡ Ações</p>", unsafe_allow_html=True)
+    st.markdown(
+        "<p style='margin:8px 0 2px 0; font-size:0.7rem; font-weight:700; "
+        "text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>"
+        "⚡ Ações</p>",
+        unsafe_allow_html=True,
+    )
     refresh = st.button("🔄 Atualizar Dados", use_container_width=True)
     if refresh:
         st.cache_data.clear()
         st.rerun()
 
     st.markdown(
-        f"<p style='font-size:0.68rem; color:#6B7280; margin-top:12px;'>Dados via Meta API + Google Sheets<br>"
-        f"Atualizado: {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>",
+        f"<p style='font-size:0.63rem; color:#6B7280; margin-top:8px; line-height:1.4;'>"
+        f"Meta API + Google Sheets<br>{datetime.now().strftime('%d/%m %H:%M')}</p>",
         unsafe_allow_html=True,
     )
 
