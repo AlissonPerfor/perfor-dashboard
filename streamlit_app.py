@@ -653,42 +653,7 @@ footer    {{ visibility:hidden; }}
 </style>
 """, unsafe_allow_html=True)
 
-# ── CSS dedicado à sidebar e layout — bloco separado sem f-string ──
-# Mantido fora do bloco principal para evitar que as chaves {{ }}
-# do f-string interfiram nos seletores CSS do Streamlit.
-st.markdown("""
-<style>
-    /* 1. Zera padding do topo da sidebar e do conteúdo principal */
-    .stApp [data-testid="stSidebarUserContent"] {
-        padding-top: 0rem !important;
-    }
-    .stApp .block-container {
-        padding-top: 1rem !important;
-    }
 
-    /* 2. Remove o espaço de navegação padrão do Streamlit */
-    [data-testid="stSidebarNav"] {
-        display: none !important;
-    }
-
-    /* 3. Compacta o gap vertical entre widgets da sidebar */
-    [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
-        gap: 0.5rem !important;
-    }
-
-    /* 4. Sobe a logo para colar no topo — ataca o container nativo do st.image */
-    [data-testid="stSidebar"] [data-testid="stImage"] {
-        margin-top: -50px !important;
-        margin-bottom: -20px !important;
-    }
-
-    /* 5. Remove header fantasma que empurra conteúdo */
-    .stApp > header {
-        min-height: 0 !important;
-        height: 0 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────
@@ -1423,31 +1388,67 @@ def parse_number(v):
 #  SIDEBAR
 # ─────────────────────────────────────────
 with st.sidebar:
-    # ── Logo — usa st.image para que [data-testid="stImage"] funcione ──
-    if os.path.exists(logo_path):
-        st.image(logo_path, width=130)
-    elif logo_b64:
-        st.markdown(f"""
-        <div class="sidebar-logo">
-            <img src="data:image/png;base64,{logo_b64}" alt="Perfor">
-        </div>
-        """, unsafe_allow_html=True)
+    # ── PASSO 1: CSS injetado de DENTRO da sidebar ────────
+    # Esta é a única técnica garantida no Streamlit Cloud:
+    # o <style> precisa ser renderizado dentro do contexto
+    # da sidebar para que os seletores não sejam bloqueados.
+    st.markdown("""
+<style>
+    /* Zera o padding nativo que o Streamlit impõe no topo */
+    section[data-testid="stSidebar"] > div {
+        padding-top: 0rem !important;
+    }
+    section[data-testid="stSidebar"] > div > div {
+        padding-top: 0rem !important;
+    }
+    [data-testid="stSidebarUserContent"] {
+        padding-top: 0rem !important;
+    }
+
+    /* Remove reserva de espaço de navegação multi-page */
+    [data-testid="stSidebarNav"] {
+        display: none !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }
+
+    /* Compacta gap vertical entre widgets */
+    [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] {
+        gap: 0.4rem !important;
+    }
+    [data-testid="stSidebarUserContent"] [data-testid="stVerticalBlockSeparator"] {
+        display: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+    # ── PASSO 2: Logo como HTML puro com base64 ───────────
+    # st.image() e classes CSS externas são ignoradas no Cloud.
+    # HTML inline com margin-top negativo é o único controle real.
+    if logo_b64:
+        st.markdown(
+            f'<div style="text-align:center; margin-top:-60px; margin-bottom:4px;">'
+            f'<img src="data:image/png;base64,{logo_b64}" width="150" style="display:inline-block;">'
+            f'</div>'
+            f'<hr style="margin:4px 0 8px 0; border:none; border-top:1px solid #262626;">',
+            unsafe_allow_html=True,
+        )
 
     # ── 1. Cliente ────────────────────────────────────────
-    st.markdown("### 👤 Cliente")
+    st.markdown("<p style='margin:0 0 4px 0; font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>👤 Cliente</p>", unsafe_allow_html=True)
     selected_client = st.selectbox(
-        "Selecione o cliente:",
+        "cliente",
         list(CLIENTS.keys()),
         index=0,
         label_visibility="collapsed",
     )
 
-    st.markdown("---")
+    st.markdown("<hr style='margin:6px 0; border:none; border-top:1px solid #262626;'>", unsafe_allow_html=True)
 
     # ── 2. Período ───────────────────────────────────────
-    st.markdown("### 📅 Período")
+    st.markdown("<p style='margin:0 0 4px 0; font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>📅 Período</p>", unsafe_allow_html=True)
     period = st.radio(
-        "Selecione o período:",
+        "período",
         ["Hoje", "Ontem", "Últimos 7 dias", "Últimos 30 dias", "Mês Atual", "Personalizado"],
         index=3,
         label_visibility="collapsed",
@@ -1455,22 +1456,21 @@ with st.sidebar:
 
     custom_start, custom_end = None, None
     if period == "Personalizado":
-        st.markdown("---")
+        st.markdown("<hr style='margin:4px 0; border:none; border-top:1px solid #262626;'>", unsafe_allow_html=True)
         custom_start = st.date_input("Data início", value=date.today() - timedelta(days=30))
         custom_end   = st.date_input("Data fim",    value=date.today())
 
-    st.markdown("---")
+    st.markdown("<hr style='margin:6px 0; border:none; border-top:1px solid #262626;'>", unsafe_allow_html=True)
 
     # ── 3. Ações ─────────────────────────────────────────
-    st.markdown("### ⚡ Ações")
+    st.markdown("<p style='margin:0 0 4px 0; font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.8px; color:#6B7280;'>⚡ Ações</p>", unsafe_allow_html=True)
     refresh = st.button("🔄 Atualizar Dados", use_container_width=True)
     if refresh:
         st.cache_data.clear()
         st.rerun()
 
-    st.markdown("---")
     st.markdown(
-        f"<p style='font-size:0.7rem; color:{C['dim']}'>Dados via Meta Marketing API + Google Sheets<br>"
+        f"<p style='font-size:0.68rem; color:#6B7280; margin-top:12px;'>Dados via Meta API + Google Sheets<br>"
         f"Atualizado: {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>",
         unsafe_allow_html=True,
     )
