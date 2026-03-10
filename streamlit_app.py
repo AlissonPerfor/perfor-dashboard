@@ -306,7 +306,7 @@ st.markdown(f"""
 
 /* ── Compactar espaço no topo — mais conteúdo na dobra ── */
 .block-container {{
-    padding-top: 0rem !important;
+    padding-top: 1rem !important;
     padding-bottom: 1rem !important;
 }}
 section[data-testid="stSidebar"] > div:first-child {{
@@ -375,12 +375,15 @@ section[data-testid="stSidebar"] {{
 section[data-testid="stSidebar"] > div {{
     padding-top: 0rem !important;
 }}
-/* Controla o gap interno entre elementos da sidebar */
+/* Remove a reserva de espaço da navegação padrão do Streamlit */
+[data-testid="stSidebarNav"] {{ display: none !important; }}
+/* Padding e gap do conteúdo da sidebar */
 [data-testid="stSidebarUserContent"] {{
-    padding-top: 0rem !important;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    padding-top: 0.5rem !important;
+}}
+/* Zera o gap entre todos os blocos verticais da sidebar */
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {{
+    gap: 0rem !important;
 }}
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stMarkdown li,
@@ -390,20 +393,21 @@ section[data-testid="stSidebar"] label {{
 section[data-testid="stSidebar"] .stRadio label span {{
     color: {C['text']} !important;
 }}
-/* Reduz margens dos elementos markdown na sidebar */
 section[data-testid="stSidebar"] .stMarkdown {{
+    margin-top: 0 !important;
     margin-bottom: 0 !important;
 }}
 section[data-testid="stSidebar"] hr {{
-    margin-top: 0.3rem !important;
-    margin-bottom: 0.3rem !important;
+    margin-top: 0.4rem !important;
+    margin-bottom: 0.4rem !important;
+    border-color: {C['border']} !important;
 }}
 .sidebar-logo {{
     text-align: center;
-    padding: 0px 16px 8px;
+    padding: 0px 16px 6px;
     border-bottom: 1px solid {C['border']};
-    margin-top: -50px !important;
-    margin-bottom: 8px;
+    margin-top: -40px !important;
+    margin-bottom: -20px !important;
 }}
 .sidebar-logo img {{ max-width: 130px; height: auto; }}
 
@@ -1408,8 +1412,8 @@ with st.sidebar:
     # ── Logo ─────────────────────────────────────────────
     if logo_b64:
         st.markdown(f"""
-        <div class="sidebar-logo">
-            <img src="data:image/png;base64,{logo_b64}" alt="Perfor">
+        <div style="margin-top:-40px; margin-bottom:-20px; text-align:center; padding:0 16px 6px; border-bottom:1px solid {C['border']};">
+            <img src="data:image/png;base64,{logo_b64}" alt="Perfor" style="max-width:130px; height:auto;">
         </div>
         """, unsafe_allow_html=True)
 
