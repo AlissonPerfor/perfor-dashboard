@@ -306,11 +306,11 @@ st.markdown(f"""
 
 /* ── Compactar espaço no topo — mais conteúdo na dobra ── */
 .block-container {{
-    padding-top: 0.6rem !important;
+    padding-top: 0.2rem !important;
     padding-bottom: 1rem !important;
 }}
 section[data-testid="stSidebar"] > div:first-child {{
-    padding-top: 0.5rem !important;
+    padding-top: 0rem !important;
 }}
 /* Remove espaço extra do header oculto */
 .stApp > header {{ min-height: 0 !important; height: 0 !important; }}
@@ -372,6 +372,9 @@ section[data-testid="stSidebar"] {{
     background: {C['card']};
     border-right: 1px solid {C['border']};
 }}
+section[data-testid="stSidebar"] > div {{
+    padding-top: 0rem !important;
+}}
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stMarkdown li,
 section[data-testid="stSidebar"] label {{
@@ -381,9 +384,9 @@ section[data-testid="stSidebar"] .stRadio label span {{
     color: {C['text']} !important;
 }}
 .sidebar-logo {{
-    text-align: center; padding: 6px 16px 10px;
+    text-align: center; padding: 4px 16px 0px;
     border-bottom: 1px solid {C['border']};
-    margin-bottom: 12px;
+    margin-bottom: 25px;
 }}
 .sidebar-logo img {{ max-width: 140px; height: auto; }}
 
