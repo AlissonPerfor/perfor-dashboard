@@ -825,10 +825,20 @@ def load_data_from_google():
                 cfg['meta_id'], preset
             )
 
-    # ── Google Sheets — GPS cells (já cacheado individualmente) ───
-    for client_name in CLIENTS:
-        cells, err = fetch_gps_cells(client_name)
+    # ── Google Sheets — GPS cells ─────────────────────────────────
+    # sleep(0.5) entre clientes evita 'Connection aborted' por
+    # velocidade excessiva de requisições ao Google Sheets API.
+    _gps_clients = list(CLIENTS.keys())
+    for _gi, client_name in enumerate(_gps_clients):
+        try:
+            cells, err = fetch_gps_cells(client_name)
+        except Exception as _ex:
+            # Captura exceções não tratadas (ex: RemoteDisconnected, OSError)
+            # para garantir que os outros clientes continuem carregando.
+            cells, err = None, f"Erro inesperado ao carregar {client_name}: {_ex}"
         result['gps'][client_name] = (cells, err)
+        if _gi < len(_gps_clients) - 1:   # não dorme após o último
+            time.sleep(0.5)
 
     # ── Google Sheets — GPS raw (tabela completa para aba GPS) ────
     for client_name in CLIENTS:
@@ -1286,12 +1296,20 @@ def fetch_gps_cells(client_name):
 
     # ── ZONA 1: valores realizados ──────────────────────────
     _row_rec_cap = find_row_by_label(
-        gps_all, ["receita captada", "faturamento captado"],
+        gps_all, [
+            "receita captada total", "receita total captada",
+            "receita captada", "faturamento captado total",
+            "faturamento captado",
+        ],
         Z1_S, Z1_E, fallback=GPS_ROW_REC_CAPTADA,
         metric_name="Receita Captada",
     )
     _row_rec_fat = find_row_by_label(
-        gps_all, ["receita faturada", "faturamento realizado"],
+        gps_all, [
+            "receita faturada total", "receita total faturada",
+            "faturamento realizado total", "faturamento total realizado",
+            "receita faturada", "faturamento realizado",
+        ],
         Z1_S, Z1_E, fallback=GPS_ROW_REC_FATURADA,
         metric_name="Receita Faturada",
     )
@@ -1330,9 +1348,16 @@ def fetch_gps_cells(client_name):
     _col_leg, _row_rec_leg, _row_fat_meta_leg, _row_inv_leg, _row_inv_meta_leg = \
         get_gps_coords(client_name)
 
-    # Meta Receita Faturada = busca "receita faturada" na zona metas
+    # Meta Receita Faturada — Zona 2 (idx 55+)
+    # Ordem: TOTAL primeiro (Ferpa Pet / Bixo Ferpa), depois genérico.
+    # Zalmy: "receita faturada" existe em Z2 com valor correto (R$330k).
     _row_fat_meta = find_row_by_label(
-        gps_all, ["receita faturada", "meta faturamento", "meta receita"],
+        gps_all, [
+            "receita faturada total",   # Ferpa Pet / Bixo Ferpa
+            "receita faturada",         # Zalmy + demais
+            "faturamento realizado total",
+            "meta faturamento", "meta receita",
+        ],
         Z2_S, Z2_E, fallback=_row_fat_meta_leg,
         metric_name="Meta Faturamento",
     )
@@ -1381,6 +1406,25 @@ def fetch_gps_cells(client_name):
     fat_meta       = _parse_safe(raw_fat_meta)
     inv_total      = _parse_safe(raw_inv_total_r)
     inv_meta       = _parse_safe(raw_inv_meta_r)
+
+    # ── Fallback TOTAL scan: se fat_meta == 0 após busca Z2 ──────
+    # Varre planilha inteira (idx 0-100) procurando linha com 'TOTAL'
+    # na col A E valor numérico não-zero na col do mês.
+    # Garante captura do faturamento de R$136k/R$63k no Ferpa/Bixo.
+    if fat_meta == 0.0:
+        for _fi in range(min(100, len(gps_all))):
+            _cell_a = _norm(gps_all[_fi][0]) if gps_all[_fi] else ''
+            if 'total' in _cell_a and ('receita' in _cell_a or 'faturamento' in _cell_a):
+                _candidate = _parse_safe(_safe_cell(gps_all, _fi, col_idx))
+                if _candidate > 0:
+                    fat_meta = _candidate
+                    print(
+                        f"[GPS fallback TOTAL] client={client_name!r} "
+                        f"encontrou fat_meta={fat_meta} na linha {_fi} "
+                        f"({_cell_a!r})"
+                    )
+                    break
+
     atingimento    = (fat_real / fat_meta * 100) if fat_meta > 0 else 0.0
 
     # ROAS = Receita Faturada / Investimento Total
@@ -1953,9 +1997,10 @@ with tab_portfolio:
             _dias_tot  = mi['total_dias']
             _dias_rest = mi['dias_restantes']
 
-            _pacing_fat = (fat_real / fat_meta  / _prog) if fat_meta  > 0 and _prog > 0 else 0
-            _fat_proj   = (fat_real / _dia * _dias_tot)  if _dia      > 0             else 0
-            _pacing_inv = (inv_real / inv_meta  / _prog) if inv_meta  > 0 and _prog > 0 else 0
+            # Pacing: 0.0 quando meta=0 (ex: Shopping Litoral Sul sem meta)
+            _pacing_fat = (fat_real / fat_meta  / _prog) if fat_meta  > 0 and _prog > 0 else 0.0
+            _fat_proj   = (fat_real / _dia * _dias_tot)  if _dia      > 0             else 0.0
+            _pacing_inv = (inv_real / inv_meta  / _prog) if inv_meta  > 0 and _prog > 0 else 0.0
             _inv_proj   = (inv_real / _dia * _dias_tot)  if _dia      > 0             else 0
             _inv_ideal  = inv_meta * _prog
             _inv_def    = max(0.0, _inv_ideal - inv_real)
@@ -1982,61 +2027,25 @@ with tab_portfolio:
     else:
         portfolio_rows = []
 
-    # ── Sort + debug + render ──────────────────────────────────────
+    # ── Sort base: ordem padrão (PORTFOLIO_CLIENTS) ───────────────
     portfolio_rows.sort(
         key=lambda x: PORTFOLIO_CLIENTS.index(x['cliente'])
         if x['cliente'] in PORTFOLIO_CLIENTS else 99
     )
 
-    # ── Debug expander: sempre visível para diagnóstico ────────────
-    _all_have_data   = all(r['fat_real'] > 0 or r['inv_real'] > 0 for r in portfolio_rows) if portfolio_rows else False
-    _some_zero       = any(r['fat_real'] == 0 and r['inv_real'] == 0 for r in portfolio_rows) if portfolio_rows else False
-    _debug_expanded  = (not portfolio_rows) or _some_zero  # abrir automaticamente se há zeros
-
-    with st.expander(
-        f"{'🔴' if _debug_expanded else '🟢'} Debug GPS — Leitura das planilhas",
-        expanded=_debug_expanded
-    ):
-        if not portfolio_rows:
-            st.error("Nenhuma linha gerada. Verifique os erros de acesso acima.")
-        for _r in portfolio_rows:
-            _dbg = _r.get('_debug', {})
-            if not _dbg:
-                continue
-            _fat_ok  = _r['fat_real'] > 0
-            _inv_ok  = _r['inv_real'] > 0
-            _all_ok  = _fat_ok and _inv_ok
-            _ico     = '✅' if _all_ok else '⚠️'
-            _col_ltr = _dbg.get('col_d_letter', 'D')
-
-            # Linha resumo sempre visível
-            st.markdown(
-                f"**{_ico} {_r['cliente']}** &nbsp;|&nbsp; "
-                f"Aba: `{_dbg.get('tab_name','?')}` &nbsp;|&nbsp; "
-                f"Coluna usada: `{_col_ltr}` (idx `{_dbg.get('col_d_used','?')}`) &nbsp;|&nbsp; "
-                f"Linhas: `{_dbg.get('total_rows','?')}` &nbsp;|&nbsp; "
-                f"D6 bruto: `{_dbg.get('raw_fat','?')}` → **{_r['fat_real']}** &nbsp;|&nbsp; "
-                f"D14 bruto: `{_dbg.get('raw_inv','?')}` → **{_r['inv_real']}**"
-            )
-            # Dump completo quando há zeros — é aqui que o problema se revela
-            if not _all_ok:
-                st.code(
-                    f"Aba encontrada : {_dbg.get('tab_name','?')}\n"
-                    f"Coluna do mês  : {_dbg.get('mes_col','?')}\n"
-                    f"Coordenadas    : {_dbg.get('coords','?')}\n"
-                    f"\n"
-                    f"Receita real   : {_dbg.get('raw_fat','?')}  → {_dbg.get('parsed_fat','?')}\n"
-                    f"Meta receita   : {_dbg.get('raw_fat_meta','?')}  → {_dbg.get('parsed_fat_meta','?')}\n"
-                    f"Investimento   : {_dbg.get('raw_inv','?')}  → {_dbg.get('parsed_inv','?')}\n"
-                    f"Meta invest.   : {_dbg.get('raw_inv_meta','?')}  → {_dbg.get('parsed_inv_meta','?')}\n"
-                    f"Atingimento %  : {_dbg.get('atingimento_pct',0):.1f}%\n"
-                    f"\n--- Linha cabeçalho ---\n{_dbg.get('row_1_dump','?')}\n"
-                    f"--- Linha Receita ---\n{_dbg.get('row_rec_dump','?')}\n"
-                    f"--- Linha Meta Receita ---\n{_dbg.get('row_meta_rec_dump','?')}\n"
-                    f"--- Linha Investimento ---\n{_dbg.get('row_inv_dump','?')}\n"
-                    f"--- Linha Meta Investimento ---\n{_dbg.get('row_meta_inv_dump','?')}",
-                    language=None
-                )
+    # Selectbox de ordenação — renderizado antes da tabela (abaixo do debug).
+    # Guardado em session_state para preservar seleção ao trocar de aba.
+    _SORT_OPTIONS = [
+        'Ordem Padrão',
+        'Maior Faturamento Realizado',
+        'Maior Meta de Faturamento',
+        'Maior ROAS',
+        'Pior Pacing de Faturamento',
+        'Maior Aceleração Necessária',
+    ]
+    _sort_key = f'portfolio_sort_{period}'
+    if _sort_key not in st.session_state:
+        st.session_state[_sort_key] = 'Ordem Padrão'
 
     if not portfolio_rows:
         st.warning(
@@ -2070,17 +2079,61 @@ with tab_portfolio:
                     </div>
                     """, unsafe_allow_html=True)
 
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # ── Tabela de Pacing — estilo Relatório por Estados ───
+            # ── Título + Seletor na mesma linha, sem gap ─────────────
+            _hcol_title, _hcol_sort = st.columns([2, 1])
+            with _hcol_title:
+                st.markdown(
+                    f'<div class="section-label" style="margin-bottom:2px">RELATÓRIO DE PACING</div>'
+                    f'<div style="font-size:1.4rem; font-weight:800; color:{C["text"]}; '
+                    f'margin:0; line-height:1.2">'
+                    f'Portfólio — {mi["nome_mes"]}</div>'
+                    f'<div style="font-size:0.78rem; color:{C["dim"]}; margin-top:3px">'
+                    f'Dia {mi["dia_atual"]}/{mi["total_dias"]} &nbsp;·&nbsp; '
+                    f'{mi["progresso_mes"]*100:.1f}% do mês decorrido &nbsp;·&nbsp; '
+                    f'{len(portfolio_rows)} clientes ativos</div>',
+                    unsafe_allow_html=True
+                )
+            with _hcol_sort:
+                # Empurra o selectbox para o meio da coluna (alinha com o título)
+                st.markdown('<div style="margin-top:18px"></div>', unsafe_allow_html=True)
+                _sort_choice = st.selectbox(
+                    'Ordenar por',
+                    options=_SORT_OPTIONS,
+                    index=_SORT_OPTIONS.index(
+                        st.session_state.get(_sort_key, 'Ordem Padrão')
+                    ),
+                    key=f'sort_select_{period}',
+                    label_visibility='collapsed',
+                )
+            st.session_state[_sort_key] = _sort_choice
             st.markdown(
-                f'<div class="section-label">RELATÓRIO DE PACING</div>'
-                f'<div style="font-size:1.4rem; font-weight:800; color:{C["text"]}; margin-bottom:4px">'
-                f'Portfólio — {mi["nome_mes"]}</div>'
-                f'<div style="font-size:0.82rem; color:{C["dim"]}; margin-bottom:20px">'
-                f'Dia {mi["dia_atual"]}/{mi["total_dias"]} &nbsp;·&nbsp; '
-                f'{mi["progresso_mes"]*100:.1f}% do mês decorrido &nbsp;·&nbsp; '
-                f'{len(portfolio_rows)} clientes ativos</div>',
+                '<div style="margin-bottom:20px"></div>',
+                unsafe_allow_html=True
+            )
+
+            # ── Aplicar sort dinâmico antes do render ────────────────
+            if _sort_choice == 'Maior Faturamento Realizado':
+                portfolio_rows = sorted(portfolio_rows,
+                    key=lambda r: r.get('fat_real', 0), reverse=True)
+            elif _sort_choice == 'Maior Meta de Faturamento':
+                portfolio_rows = sorted(portfolio_rows,
+                    key=lambda r: r.get('fat_meta', 0), reverse=True)
+            elif _sort_choice == 'Maior ROAS':
+                portfolio_rows = sorted(portfolio_rows,
+                    key=lambda r: r.get('roas', 0), reverse=True)
+            elif _sort_choice == 'Pior Pacing de Faturamento':
+                # Menor pacing = mais atrasado = aparece primeiro
+                portfolio_rows = sorted(portfolio_rows,
+                    key=lambda r: r.get('pacing_fat', 999)
+                    if r.get('pacing_fat', 0) > 0 else 999)
+            elif _sort_choice == 'Maior Aceleração Necessária':
+                # Maior inv_extra_3d = mais urgente
+                portfolio_rows = sorted(portfolio_rows,
+                    key=lambda r: r.get('inv_extra_3d', 0), reverse=True)
+            # 'Ordem Padrão': já estava ordenado pelo sort base acima
+
+            st.markdown(
+                "<div style='padding:10px 0 4px'></div>",
                 unsafe_allow_html=True
             )
 
@@ -2115,7 +2168,7 @@ with tab_portfolio:
 
             thead = """
             <tr>
-                <th style="text-align:left">#&nbsp;&nbsp;Cliente</th>
+                <th style="text-align:left; padding-left:16px">#&nbsp;&nbsp;Cliente</th>
                 <th>Fat. Realizado</th>
                 <th>Meta Fat.</th>
                 <th>Fat. Projetado</th>
@@ -3187,6 +3240,61 @@ with tab_config:
         st.markdown(_dbg_html, unsafe_allow_html=True)
     else:
         st.info("⏳ Dados GPS ainda não carregados para este cliente. Aguarde a carga inicial ou clique em Atualizar.")
+
+    # ── Debug GPS — todas as planilhas (último elemento da aba) ─
+    st.markdown("---")
+    _dbg_port_rows = []
+    for _dc_client in PORTFOLIO_CLIENTS:
+        _dc_cells, _dc_err = _all_data['gps'].get(_dc_client, ({}, None))
+        if _dc_cells:
+            _dbg_port_rows.append({
+                'cliente':      _dc_client,
+                'fat_real':     _dc_cells.get('fat_real', 0),
+                'inv_real':     _dc_cells.get('inv_total', 0),
+                '_debug':       _dc_cells.get('debug_info', {}),
+                'debug_critico': _dc_cells.get('debug_critico', {}),
+            })
+        elif _dc_err:
+            _dbg_port_rows.append({
+                'cliente': _dc_client, 'fat_real': 0, 'inv_real': 0,
+                '_debug': {}, 'debug_critico': {},
+                '_err': _dc_err,
+            })
+    _dbg_some_zero = any(r['fat_real'] == 0 and r['inv_real'] == 0 for r in _dbg_port_rows)
+    with st.expander(
+        f"{'🔴' if _dbg_some_zero else '🟢'} Debug GPS — Leitura das planilhas",
+        expanded=_dbg_some_zero
+    ):
+        for _r in _dbg_port_rows:
+            _dbg = _r.get('_debug', {})
+            _dc  = _r.get('debug_critico', {})
+            _err = _r.get('_err', '')
+            _ok  = _r['fat_real'] > 0 and _r['inv_real'] > 0
+            _ico = '✅' if _ok else ('🔴' if _err else '⚠️')
+            st.markdown(
+                f"**{_ico} {_r['cliente']}** — "
+                f"fat: **{_r['fat_real']}** | inv: **{_r['inv_real']}** "
+                + (f"| ❌ `{_err}`" if _err else "")
+            )
+            if not _ok or _dbg:
+                _col_d = _dbg.get('col_d_letter', '?')
+                _rows_f = _dbg.get('rows_found', {})
+                st.code(
+                    f"col={_col_d} (idx {_dbg.get('col_d_used','?')})  "
+                    f"tab={_dbg.get('tab_name','?')}  "
+                    f"rows={_dbg.get('total_rows','?')}\n"
+                    f"zonas : {_dc.get('zonas','?')}\n"
+                    f"rec_cap  : {_dc.get('rec_captada','?')}\n"
+                    f"rec_fat  : {_dc.get('rec_faturada','?')}\n"
+                    f"inv_tot  : {_dc.get('inv_total','?')}\n"
+                    f"fat_meta : {_dc.get('fat_meta','?')}\n"
+                    f"roas     : {_dc.get('roas_calc','?')}\n"
+                    f"pct_pgto : {_dc.get('pct_pgto_calc','?')}\n"
+                    + ("\n--- rows_found ---\n" + '\n'.join(
+                        f"{k}: row {v}" for k, v in _rows_f.items()
+                    ) if _rows_f else ""),
+                    language=None
+                )
 
     st.markdown(f"""
     <div style="text-align:center; padding:20px; color:{C['dim']}; font-size:0.75rem; margin-top:20px; border-top:1px solid {C['border']}">
