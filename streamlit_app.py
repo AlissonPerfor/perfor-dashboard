@@ -1097,39 +1097,50 @@ def fetch_gps_data(client_name):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_gps_cells(client_name):
-    """
-    Lê células fixas da coluna D nas abas GPS e Análise Perfor.
+    # Lê métricas da aba GPS/26 com busca dinâmica por rótulo na col A.
+    #
+    # ZONAS DE BUSCA (idx 0-based, RÍGIDAS):
+    #   ZONA 1 REAL     : idx  0-39  (linhas  1-40)
+    #   ZONA PROIBIDA   : idx 40-54  (linhas 41-55) tabela de comparação
+    #   ZONA 2 METAS    : idx 55-fim (linhas 56+)
+    #
+    # Nomes das linhas são IDÊNTICOS nas duas zonas (ex: "Ticket Médio"
+    # aparece na real e nas metas). A diferenciação é SOMENTE pela posição.
+    import unicodedata as _ud
+    import re as _re
 
-    Coordenadas 0-based DEFINITIVAS (confirmadas pelo processo Rober):
+    def _norm(s):
+        return _ud.normalize("NFKD", str(s).lower().strip()).encode("ascii", "ignore").decode()
 
-    Aba GPS / 26 — linhas fixas (mesma para todos os clientes):
-      idx  5  → Linha  6 — Receita Captada      (GPS_ROW_REC_CAPTADA)
-      idx  6  → Linha  7 — Receita Faturada     (GPS_ROW_REC_FATURADA)
-      idx 14  → Linha 15 — Investimento Total   (GPS_ROW_INV_TOTAL)
-      idx 18  → Linha 19 — Pedidos Pagos        (GPS_ROW_PEDIDOS)
-
-    Aba GPS / 26 — KPIs por busca de label (cols A/B/C):
-      Realizado  : faixa idx  4–38
-      Metas      : faixa idx 65–86
-      Labels: 'custo por sessao', 'taxa de conversao', 'ticket medio'
-
-    col_idx = mês atual (Jan=1, Fev=2, Mar=3 …)
-
-    Retorna (dict, None) em sucesso ou (None, str_erro) em falha.
-    O dict sempre inclui 'debug_info' com dump completo das linhas
-    relevantes — exibido na interface quando valores são zero.
-    """
-    # ── 1. Resolver sheet_id ───────────────────────────────────────
-    sheet_id = get_sheet_id(client_name)
-    if not sheet_id:
-        env_key = SHEET_ENV_KEYS.get(client_name, '')
-        derived = 'SHEET_ID_' + client_name.upper().replace(' ', '_').replace('.', '_')
-        return None, (
-            f"ID da planilha de **{client_name}** nao encontrado no `.env`.\n\n"
-            f"Chave esperada: `{env_key or derived}=seu_id_aqui`"
+    def find_row_by_label(matrix, keywords, row_start, row_end,
+                          fallback=None, metric_name="", exact=False):
+        """
+        Varre matrix[row_start:row_end) verificando col A (idx 0) e col B (idx 1).
+        NUNCA retorna um idx fora de [row_start, row_end).
+        exact=True  → cell normalizado deve ser IGUAL a um keyword.
+        exact=False → keyword (len>4) é substring do cell.
+        Fallback + aviso no console se não encontrar.
+        """
+        norm_kws = {_norm(k) for k in keywords}
+        end = min(row_end, len(matrix))
+        for ri in range(row_start, end):
+            row = matrix[ri]
+            for ci in range(min(2, len(row))):
+                cell = _norm(row[ci])
+                if exact:
+                    if cell in norm_kws:
+                        return ri
+                else:
+                    for kw in norm_kws:
+                        if kw == cell or (len(kw) > 4 and kw in cell):
+                            return ri
+        print(
+            f"[GPS label not found] client={client_name!r} "
+            f"metric={metric_name!r} keywords={keywords} "
+            f"zona={row_start}-{row_end} fallback={fallback}"
         )
+        return fallback
 
-    # ── 2. Helpers ────────────────────────────────────────────────
     def _open_retry(key, tries=3):
         for _a in range(tries):
             try:
@@ -1138,11 +1149,11 @@ def fetch_gps_cells(client_name):
                 return None, f"Planilha `{key}` nao encontrada. Verifique o .env."
             except Exception as _ex:
                 _m = str(_ex)
-                if '429' in _m or 'quota' in _m.lower() or 'rate' in _m.lower():
+                if "429" in _m or "quota" in _m.lower() or "rate" in _m.lower():
                     if _a < tries - 1:
                         time.sleep(2 ** _a)
                         continue
-                    return None, '\u23f3 Cota Google atingida. Tente em ~1 min.'
+                    return None, "\u23f3 Cota Google atingida. Tente em ~1 min."
                 return None, f"Erro ao abrir planilha de {client_name}: {_ex}"
         return None, "Falha apos todas as tentativas."
 
@@ -1152,120 +1163,100 @@ def fetch_gps_cells(client_name):
                 return ws_obj.get_all_values(), None
             except Exception as _ex:
                 _m = str(_ex)
-                if '429' in _m or 'quota' in _m.lower():
+                if "429" in _m or "quota" in _m.lower():
                     if _a < tries - 1:
                         time.sleep(2 ** _a)
                         continue
-                    return None, '\u23f3 Cota Google atingida. Tente em ~1 min.'
+                    return None, "\u23f3 Cota Google atingida. Tente em ~1 min."
                 return None, str(_ex)
         return None, "Falha."
 
     def _parse_safe(v):
-        """
-        Converte qualquer representação de número para float.
-        Trata: None, '', '0', '0.0', '-', '—', 'R$ 0,00', 'R$ 163.692,31'
-        Retorna sempre float >= 0.0, nunca NaN.
-        """
-        import re as _re
         if v is None:
             return 0.0
         s = str(v).strip()
-        # Valores explicitamente nulos ou traços
-        if s in ('', '0', '0.0', '-', '\u2014', 'N/A', 'n/a', '#N/A', '#VALUE!'):
+        if s in ("", "0", "0.0", "-", "\u2014", "N/A", "n/a", "#N/A", "#VALUE!"):
             return 0.0
-        # Remove tudo exceto dígitos, ponto e vírgula
-        s2 = _re.sub(r'[^0-9.,]', '', s)
+        s2 = _re.sub(r"[^0-9.,]", "", s)
         if not s2:
             return 0.0
         try:
-            if ',' in s2:
-                # Formato BR: ponto = milhar, vírgula = decimal
-                s2 = s2.replace('.', '').replace(',', '.')
+            if "," in s2:
+                s2 = s2.replace(".", "").replace(",", ".")
             result = float(s2)
-            # Tratar NaN e Inf
-            if result != result or result == float('inf'):
+            if result != result or result == float("inf"):
                 return 0.0
             return result
         except (ValueError, TypeError):
             return 0.0
 
     def _safe_cell(matrix, row_idx, col_idx):
-        """
-        Lê célula exata (row_idx, col_idx), ambos 0-based.
-        Retorna string bruta limpa, ou '' se fora dos limites.
-        """
         try:
-            if row_idx >= len(matrix):
-                return ''
+            if row_idx is None or row_idx >= len(matrix):
+                return ""
             row = matrix[row_idx]
             if col_idx >= len(row):
-                return ''
+                return ""
             return str(row[col_idx]).strip()
         except (IndexError, TypeError):
-            return ''
+            return ""
 
     def _row_dump(matrix, row_idx, max_cols=8):
-        """Retorna representação legível de uma linha para debug."""
         try:
-            if row_idx >= len(matrix):
-                return f'(linha {row_idx+1} nao existe — planilha tem {len(matrix)} linhas)'
+            if row_idx is None or row_idx >= len(matrix):
+                return f"(linha {row_idx} nao existe - total {len(matrix)})"
             row = matrix[row_idx]
-            parts = []
-            for ci in range(min(max_cols, len(row))):
-                col_letter = chr(ord('A') + ci)
-                parts.append(f'{col_letter}{row_idx+1}="{row[ci]}"')
-            return ' | '.join(parts)
+            parts = [
+                f'{chr(ord("A") + ci)}{row_idx + 1}="{row[ci]}"'
+                for ci in range(min(max_cols, len(row)))
+            ]
+            return " | ".join(parts)
         except Exception as ex:
-            return f'(erro ao ler linha: {ex})'
+            return f"(erro: {ex})"
 
-    # ── 3. Abrir planilha ─────────────────────────────────────────
+    # ═══════════════════════════════════════════════════════════
+    #  1. SHEET_ID
+    # ═══════════════════════════════════════════════════════════
+    sheet_id = get_sheet_id(client_name)
+    if not sheet_id:
+        env_key = SHEET_ENV_KEYS.get(client_name, "")
+        derived = "SHEET_ID_" + client_name.upper().replace(" ", "_").replace(".", "_")
+        return None, (
+            f"ID da planilha de **{client_name}** nao encontrado no `.env`.\n\n"
+            f"Chave esperada: `{env_key or derived}=seu_id_aqui`"
+        )
+
+    # ═══════════════════════════════════════════════════════════
+    #  2. ABRIR PLANILHA + ABA GPS
+    # ═══════════════════════════════════════════════════════════
     spreadsheet, err = _open_retry(sheet_id)
     if err:
         return None, err
 
-    # ── 4. Abrir aba GPS — acesso DIRETO, zero worksheets() ──────────
-    #
-    # REGRA: nunca chamar spreadsheet.worksheets() — consome cota de
-    # metadados mesmo sem ler dados. Tentamos cada nome diretamente;
-    # WorksheetNotFound não gasta cota extra (é só 404 local).
-    # Se nenhum nome funcionar → retorna silenciosamente, portfólio
-    # pula este cliente sem travar o dashboard.
-    #
-    # Cache TTL=7200s: este bloco roda no máximo 1× a cada 2 horas.
-
     _GPS_NAMES = [
-        '🏆 GPS / 26',   # nome padrão — cobre ~99% dos casos
-        'GPS / 26',
-        '🏆 GPS/26',
-        'GPS/26',
-        '🏆 GPS 2026',
-        'GPS 2026',
+        "\U0001f3c6 GPS / 26", "GPS / 26",
+        "\U0001f3c6 GPS/26",   "GPS/26",
+        "\U0001f3c6 GPS 2026", "GPS 2026",
     ]
-
-    ws_gps       = None
-    gps_tab_name = ''
-
+    ws_gps, gps_tab_name = None, ""
     for _name in _GPS_NAMES:
         try:
             ws_gps       = spreadsheet.worksheet(_name)
             gps_tab_name = _name
             break
         except gspread.exceptions.WorksheetNotFound:
-            continue   # tenta próximo nome, sem custo de cota
+            continue
         except Exception as _ex:
             return None, f"Erro ao abrir aba GPS de {client_name}: {_ex}"
 
     if ws_gps is None:
         return None, (
-            f"Aba GPS / 26 não encontrada para **{client_name}**. "
+            f"Aba GPS / 26 nao encontrada para **{client_name}**. "
             f"Nomes tentados: {_GPS_NAMES}"
         )
 
-    # Delay de 1s entre clientes na carga inicial — protege cota Google Sheets.
-    # Só executa 1× por cliente a cada 2h (TTL=7200). Zero impacto no render.
     time.sleep(1)
 
-    # ── 5. Ler todos os valores ───────────────────────────────────
     gps_all, err = _read_retry(ws_gps)
     if err:
         return None, err
@@ -1275,163 +1266,217 @@ def fetch_gps_cells(client_name):
     n_rows = len(gps_all)
     n_cols = max(len(r) for r in gps_all) if gps_all else 0
 
-    # ── 6. Coordenadas específicas por cliente + coluna do mês ────
-    # get_gps_coords retorna índices 0-based prontos para uso direto.
-    # col_idx : coluna do mês atual (Jan=1=B, Fev=2=C, Mar=3=D …)
-    # row_*   : linha do cliente convertida para 0-based
-    col_idx, row_rec, row_meta_rec, row_inv, row_meta_inv = get_gps_coords(client_name)
-    col_letter = chr(ord('A') + col_idx)   # para debug legível (ex: 'D')
+    # ═══════════════════════════════════════════════════════════
+    #  3. COLUNA DO MES  (Jan=1=col B, Mar=3=col D …)
+    # ═══════════════════════════════════════════════════════════
+    col_idx    = datetime.now().month
+    col_letter = chr(ord("A") + col_idx)
 
-    # ── 7. Ler células GPS — coordenadas por cliente ─────────────
-    raw_fat      = _safe_cell(gps_all, row_rec,      col_idx)
-    raw_fat_meta = _safe_cell(gps_all, row_meta_rec, col_idx)
-    raw_inv      = _safe_cell(gps_all, row_inv,      col_idx)
-    raw_inv_meta = _safe_cell(gps_all, row_meta_inv, col_idx)
+    # ═══════════════════════════════════════════════════════════
+    #  4. ZONAS DE BUSCA
+    #
+    #   ZONA 1 REAL   idx  0-39  linhas  1-40
+    #   ZONA PROIBIDA idx 40-54  linhas 41-55  ← comparações / variações
+    #   ZONA 2 METAS  idx 55-fim linhas 56+
+    #
+    #  Rótulos IDÊNTICOS nas duas zonas — diferença é SÓ pela posição.
+    # ═══════════════════════════════════════════════════════════
+    Z1_S, Z1_E = 0,  40    # REAL
+    Z2_S, Z2_E = 55, 9999  # METAS
 
-    fat_real   = _parse_safe(raw_fat)
-    fat_meta   = _parse_safe(raw_fat_meta)
-    inv_total  = _parse_safe(raw_inv)
-    inv_meta   = _parse_safe(raw_inv_meta)
+    # ── ZONA 1: valores realizados ──────────────────────────
+    _row_rec_cap = find_row_by_label(
+        gps_all, ["receita captada", "faturamento captado"],
+        Z1_S, Z1_E, fallback=GPS_ROW_REC_CAPTADA,
+        metric_name="Receita Captada",
+    )
+    _row_rec_fat = find_row_by_label(
+        gps_all, ["receita faturada", "faturamento realizado"],
+        Z1_S, Z1_E, fallback=GPS_ROW_REC_FATURADA,
+        metric_name="Receita Faturada",
+    )
+    _row_inv = find_row_by_label(
+        gps_all, ["investimento total", "total investido"],
+        Z1_S, Z1_E, fallback=GPS_ROW_INV_TOTAL,
+        metric_name="Investimento Total",
+    )
+    # exact=True: evita "pedidos captados"
+    _row_pedidos = find_row_by_label(
+        gps_all, ["pedidos pagos", "pedidos faturados"],
+        Z1_S, Z1_E, fallback=GPS_ROW_PEDIDOS,
+        metric_name="Pedidos Pagos", exact=True,
+    )
+    # exact=True: evita linhas de variação que contenham "custo por sessao"
+    _row_cps_r = find_row_by_label(
+        gps_all, ["custo por sessao"],
+        Z1_S, Z1_E, fallback=GPS_ROW_CPS,
+        metric_name="CPS Real", exact=True,
+    )
+    _row_conv_r = find_row_by_label(
+        gps_all, ["taxa de conversao"],
+        Z1_S, Z1_E, fallback=GPS_ROW_CONV,
+        metric_name="Taxa de Conversao Real", exact=True,
+    )
+    # exact=True: evita "variacao ticket medio"
+    _row_tick_r = find_row_by_label(
+        gps_all, ["ticket medio"],
+        Z1_S, Z1_E, fallback=GPS_ROW_TICKET,
+        metric_name="Ticket Medio Real", exact=True,
+    )
 
-    # Atingimento = fat_real / fat_meta * 100  (em %)
-    atingimento = (fat_real / fat_meta * 100) if fat_meta > 0 else 0.0
+    # ── ZONA 2: metas (idx 55+) ─────────────────────────────
+    # Rótulos idênticos aos da Zona 1 — diferença é SÓ a posição.
+    # Fallback via get_gps_coords (coordenadas por cliente hardcoded).
+    _col_leg, _row_rec_leg, _row_fat_meta_leg, _row_inv_leg, _row_inv_meta_leg = \
+        get_gps_coords(client_name)
 
-    # ── 7b. Células fixas do Relatório (idx fixos, mesma col do mês) ─
-    raw_rec_captada  = _safe_cell(gps_all, GPS_ROW_REC_CAPTADA,  col_idx)
-    raw_rec_faturada = _safe_cell(gps_all, GPS_ROW_REC_FATURADA, col_idx)
-    raw_inv_total_r  = _safe_cell(gps_all, GPS_ROW_INV_TOTAL,    col_idx)
-    raw_pedidos      = _safe_cell(gps_all, GPS_ROW_PEDIDOS,       col_idx)
+    # Meta Receita Faturada = busca "receita faturada" na zona metas
+    _row_fat_meta = find_row_by_label(
+        gps_all, ["receita faturada", "meta faturamento", "meta receita"],
+        Z2_S, Z2_E, fallback=_row_fat_meta_leg,
+        metric_name="Meta Faturamento",
+    )
+    # Meta Investimento = busca "investimento total" na zona metas
+    _row_inv_meta = find_row_by_label(
+        gps_all, ["investimento total", "meta investimento", "orcamento"],
+        Z2_S, Z2_E, fallback=_row_inv_meta_leg,
+        metric_name="Meta Investimento",
+    )
+    # Meta CPS
+    _row_cps_m = find_row_by_label(
+        gps_all, ["custo por sessao"],
+        Z2_S, Z2_E, fallback=GPS_ROW_CPS_META,
+        metric_name="Meta CPS", exact=True,
+    )
+    # Meta Taxa de Conversão
+    _row_conv_m = find_row_by_label(
+        gps_all, ["taxa de conversao"],
+        Z2_S, Z2_E, fallback=GPS_ROW_CONV_META,
+        metric_name="Meta Conversao", exact=True,
+    )
+    # Meta Ticket Médio
+    _row_tick_m = find_row_by_label(
+        gps_all, ["ticket medio"],
+        Z2_S, Z2_E, fallback=GPS_ROW_TICKET_META,
+        metric_name="Meta Ticket", exact=True,
+    )
+
+    # ═══════════════════════════════════════════════════════════
+    #  5. LER CÉLULAS
+    # ═══════════════════════════════════════════════════════════
+    raw_rec_captada  = _safe_cell(gps_all, _row_rec_cap,  col_idx)
+    raw_rec_faturada = _safe_cell(gps_all, _row_rec_fat,  col_idx)
+    raw_inv_total_r  = _safe_cell(gps_all, _row_inv,      col_idx)
+    raw_pedidos      = _safe_cell(gps_all, _row_pedidos,  col_idx)
+    raw_fat_meta     = _safe_cell(gps_all, _row_fat_meta, col_idx)
+    raw_inv_meta_r   = _safe_cell(gps_all, _row_inv_meta, col_idx)
+    # fat_real via get_gps_coords (compatibilidade portfólio/atingimento)
+    raw_fat          = _safe_cell(gps_all, _row_rec_leg,  col_idx)
 
     rec_captada_r  = _parse_safe(raw_rec_captada)
     rec_faturada_r = _parse_safe(raw_rec_faturada)
     inv_total_r    = _parse_safe(raw_inv_total_r)
     pedidos_r      = _parse_safe(raw_pedidos)
+    fat_real       = _parse_safe(raw_fat)
+    fat_meta       = _parse_safe(raw_fat_meta)
+    inv_total      = _parse_safe(raw_inv_total_r)
+    inv_meta       = _parse_safe(raw_inv_meta_r)
+    atingimento    = (fat_real / fat_meta * 100) if fat_meta > 0 else 0.0
 
-    # ── Dump explícito das 3 linhas críticas para debug no Cloud ─
-    # Garante que os valores no dict reflitam EXATAMENTE as células
-    # idx 5/6/18 da coluna col_idx — sem intermediários.
-    _debug_critico = {
-        'idx5_rec_captada':  f'raw={raw_rec_captada!r}  parsed={rec_captada_r}',
-        'idx6_rec_faturada': f'raw={raw_rec_faturada!r} parsed={rec_faturada_r}',
-        'idx14_inv_total':   f'raw={raw_inv_total_r!r}  parsed={inv_total_r}',
-        'idx18_pedidos':     f'raw={raw_pedidos!r}      parsed={pedidos_r}',
-        'col_idx_usado':     col_idx,
-        'col_letra':         col_letter,
-        'row5_dump':         _row_dump(gps_all,  5),
-        'row6_dump':         _row_dump(gps_all,  6),
-        'row14_dump':        _row_dump(gps_all, 14),
-        'row18_dump':        _row_dump(gps_all, 18),
-    }
-
-    # ── 8. Debug info completo ────────────────────────────────────
-    _col_scores = {col_idx: 4}
-    debug_info = {
-        'tab_name':         gps_tab_name,
-        'total_rows':       n_rows,
-        'total_cols':       n_cols,
-        'col_d_used':       col_idx,
-        'col_d_letter':     col_letter,
-        'mes_col':          f'{col_letter} (mês {datetime.now().month})',
-        'raw_fat':          raw_fat      or '(vazio)',
-        'raw_fat_meta':     raw_fat_meta or '(vazio)',
-        'raw_inv':          raw_inv      or '(vazio)',
-        'raw_inv_meta':     raw_inv_meta or '(vazio)',
-        'parsed_fat':       fat_real,
-        'parsed_fat_meta':  fat_meta,
-        'parsed_inv':       inv_total,
-        'parsed_inv_meta':  inv_meta,
-        'atingimento_pct':  atingimento,
-        'coords': (
-            f'Rec=L{row_rec+1}{col_letter} | MetaRec=L{row_meta_rec+1}{col_letter} | '
-            f'Inv=L{row_inv+1}{col_letter} | MetaInv=L{row_meta_inv+1}{col_letter}'
-        ),
-        'row_rec_dump':      _row_dump(gps_all, row_rec),
-        'row_meta_rec_dump': _row_dump(gps_all, row_meta_rec),
-        'row_inv_dump':      _row_dump(gps_all, row_inv),
-        'row_meta_inv_dump': _row_dump(gps_all, row_meta_inv),
-        'row_1_dump':        _row_dump(gps_all, 0),
-        'row_2_dump':        _row_dump(gps_all, 1),
-        'col_scores':        str(_col_scores),
-    }
-
-    # ── 9. KPIs Real + Meta — busca por label na aba GPS/26 ────────
-    #
-    # Faixas (0-based): REALIZADO idx 4-38 | METAS idx 65-86
-    # Busca o label nas cols A/B/C, lê valor na col_idx (mês atual).
-    # Fallback: índices hardcoded se label não encontrado.
-
-    import unicodedata as _ud
-
-    def _norm_kpi(s):
-        return _ud.normalize('NFKD', str(s).lower().strip()).encode('ascii', 'ignore').decode()
-
-    _CPS_LABELS    = {'custo por sessao', 'custo por sessao pago', 'cps', 'cps pago'}
-    _CONV_LABELS   = {'taxa de conversao', 'taxa conversao', 'conversao', 'conv'}
-    _TICKET_LABELS = {'ticket medio', 'ticket medio pago', 'ticket'}
-
-    def _find_kpi_row(matrix, labels_set, row_start, row_end):
-        for ri in range(row_start, min(row_end, len(matrix))):
-            row = matrix[ri]
-            for ci in range(min(3, len(row))):
-                if _norm_kpi(row[ci]) in labels_set:
-                    return ri
-        return None
-
-    _REAL_S, _REAL_E =  4, 39
-    _META_S, _META_E = 65, 87
-
-    _r_cps_r  = _find_kpi_row(gps_all, _CPS_LABELS,    _REAL_S, _REAL_E) or GPS_ROW_CPS
-    _r_conv_r = _find_kpi_row(gps_all, _CONV_LABELS,   _REAL_S, _REAL_E) or GPS_ROW_CONV
-    _r_tick_r = _find_kpi_row(gps_all, _TICKET_LABELS, _REAL_S, _REAL_E) or GPS_ROW_TICKET
-    _r_cps_m  = _find_kpi_row(gps_all, _CPS_LABELS,    _META_S, _META_E) or GPS_ROW_CPS_META
-    _r_conv_m = _find_kpi_row(gps_all, _CONV_LABELS,   _META_S, _META_E) or GPS_ROW_CONV_META
-    _r_tick_m = _find_kpi_row(gps_all, _TICKET_LABELS, _META_S, _META_E) or GPS_ROW_TICKET_META
+    # ROAS = Receita Faturada / Investimento Total
+    roas = (rec_faturada_r / inv_total_r) if inv_total_r > 0 else 0.0
 
     analise_kpis = {
-        'cps_pago':         _parse_safe(_safe_cell(gps_all, _r_cps_r,  col_idx)),
-        'ticket_medio':     _parse_safe(_safe_cell(gps_all, _r_tick_r, col_idx)),
-        'taxa_conversao':   _parse_safe(_safe_cell(gps_all, _r_conv_r, col_idx)),
-        'cps_meta':         _parse_safe(_safe_cell(gps_all, _r_cps_m,  col_idx)),
-        'ticket_meta':      _parse_safe(_safe_cell(gps_all, _r_tick_m, col_idx)),
-        'conversao_meta':   _parse_safe(_safe_cell(gps_all, _r_conv_m, col_idx)),
-        '_cps_raw':         _safe_cell(gps_all, _r_cps_r,  col_idx),
-        '_ticket_raw':      _safe_cell(gps_all, _r_tick_r, col_idx),
-        '_conv_raw':        _safe_cell(gps_all, _r_conv_r, col_idx),
-        '_cps_meta_raw':    _safe_cell(gps_all, _r_cps_m,  col_idx),
-        '_ticket_meta_raw': _safe_cell(gps_all, _r_tick_m, col_idx),
-        '_conv_meta_raw':   _safe_cell(gps_all, _r_conv_m, col_idx),
-        '_rows_found': {
-            'cps_real': _r_cps_r, 'conv_real': _r_conv_r,
-            'ticket_real': _r_tick_r, 'cps_meta': _r_cps_m,
-            'conv_meta': _r_conv_m, 'ticket_meta': _r_tick_m,
+        "cps_pago":         _parse_safe(_safe_cell(gps_all, _row_cps_r,  col_idx)),
+        "ticket_medio":     _parse_safe(_safe_cell(gps_all, _row_tick_r, col_idx)),
+        "taxa_conversao":   _parse_safe(_safe_cell(gps_all, _row_conv_r, col_idx)),
+        "cps_meta":         _parse_safe(_safe_cell(gps_all, _row_cps_m,  col_idx)),
+        "ticket_meta":      _parse_safe(_safe_cell(gps_all, _row_tick_m, col_idx)),
+        "conversao_meta":   _parse_safe(_safe_cell(gps_all, _row_conv_m, col_idx)),
+        "_cps_raw":         _safe_cell(gps_all, _row_cps_r,  col_idx),
+        "_ticket_raw":      _safe_cell(gps_all, _row_tick_r, col_idx),
+        "_conv_raw":        _safe_cell(gps_all, _row_conv_r, col_idx),
+        "_cps_meta_raw":    _safe_cell(gps_all, _row_cps_m,  col_idx),
+        "_ticket_meta_raw": _safe_cell(gps_all, _row_tick_m, col_idx),
+        "_conv_meta_raw":   _safe_cell(gps_all, _row_conv_m, col_idx),
+        "_rows_found": {
+            "cps_real":    _row_cps_r,  "conv_real":   _row_conv_r,
+            "ticket_real": _row_tick_r, "cps_meta":    _row_cps_m,
+            "conv_meta":   _row_conv_m, "ticket_meta": _row_tick_m,
         },
-        '_col_used': col_idx,
+        "_col_used": col_idx,
+    }
+
+    # ═══════════════════════════════════════════════════════════
+    #  6. DEBUG
+    # ═══════════════════════════════════════════════════════════
+    _debug_critico = {
+        "rec_captada":   f"row={_row_rec_cap}  raw={raw_rec_captada!r}  parsed={rec_captada_r}",
+        "rec_faturada":  f"row={_row_rec_fat}  raw={raw_rec_faturada!r} parsed={rec_faturada_r}",
+        "inv_total":     f"row={_row_inv}      raw={raw_inv_total_r!r}  parsed={inv_total_r}",
+        "pedidos_pagos": f"row={_row_pedidos}  raw={raw_pedidos!r}      parsed={pedidos_r}",
+        "fat_meta":      f"row={_row_fat_meta} raw={raw_fat_meta!r}     parsed={fat_meta}",
+        "inv_meta":      f"row={_row_inv_meta} raw={raw_inv_meta_r!r}   parsed={inv_meta}",
+        "roas_calc":     f"rec_fat={rec_faturada_r} / inv={inv_total_r} = {roas:.4f}",
+        "pct_pgto_calc": f"rec_fat={rec_faturada_r} / rec_cap={rec_captada_r} = "
+                         f"{(rec_faturada_r/rec_captada_r*100) if rec_captada_r>0 else 0:.2f}%",
+        "col_idx_usado": col_idx,
+        "col_letra":     col_letter,
+        "zonas":         "REAL 0-39 | PROIBIDA 40-54 | METAS 55+",
+        "row_rec_cap_dump":  _row_dump(gps_all, _row_rec_cap),
+        "row_rec_fat_dump":  _row_dump(gps_all, _row_rec_fat),
+        "row_inv_dump":      _row_dump(gps_all, _row_inv),
+        "row_pedidos_dump":  _row_dump(gps_all, _row_pedidos),
+        "row_cps_r_dump":    _row_dump(gps_all, _row_cps_r),
+        "row_tick_r_dump":   _row_dump(gps_all, _row_tick_r),
+        "row_conv_r_dump":   _row_dump(gps_all, _row_conv_r),
+        "row_fat_meta_dump": _row_dump(gps_all, _row_fat_meta),
+        "row_tick_m_dump":   _row_dump(gps_all, _row_tick_m),
+        "row_conv_m_dump":   _row_dump(gps_all, _row_conv_m),
+    }
+    debug_info = {
+        "tab_name":        gps_tab_name,
+        "total_rows":      n_rows,
+        "total_cols":      n_cols,
+        "col_d_used":      col_idx,
+        "col_d_letter":    col_letter,
+        "mes_col":         f"{col_letter} (mes {datetime.now().month})",
+        "atingimento_pct": atingimento,
+        "rows_found": {
+            "rec_captada": _row_rec_cap, "rec_faturada": _row_rec_fat,
+            "inv_total":   _row_inv,     "pedidos":      _row_pedidos,
+            "fat_meta":    _row_fat_meta,"inv_meta":     _row_inv_meta,
+            "cps_real":    _row_cps_r,   "conv_real":    _row_conv_r,
+            "ticket_real": _row_tick_r,  "cps_meta":     _row_cps_m,
+            "conv_meta":   _row_conv_m,  "ticket_meta":  _row_tick_m,
+        },
     }
 
     return {
-        'fat_real':       fat_real,
-        'fat_meta':       fat_meta,
-        'inv_total':      inv_total,
-        'inv_meta':       inv_meta,
-        'atingimento':    atingimento,     # já em % (fat_real/fat_meta*100)
-        'roas':           0.0,
-        # ── Campos do Relatório (lidos de linhas fixas GPS/26) ──
-        'rec_captada':    rec_captada_r,   # idx 5
-        'rec_faturada':   rec_faturada_r,  # idx 6
-        'inv_total_rep':  inv_total_r,     # idx 14
-        'pedidos_pagos':  pedidos_r,       # idx 18 — Linha 19: Pedidos Pagos
-        # ── Raws ──
-        '_fat_raw':       raw_fat,
-        '_inv_raw':       raw_inv,
-        '_rec_cap_raw':   raw_rec_captada,
-        '_rec_fat_raw':   raw_rec_faturada,
-        '_inv_rep_raw':   raw_inv_total_r,
-        '_pedidos_raw':   raw_pedidos,
-        'analise':        analise_kpis,
-        'client_name':    client_name,
-        'debug_info':     debug_info,
-        'debug_critico':  _debug_critico,
+        "fat_real":       fat_real,
+        "fat_meta":       fat_meta,
+        "inv_total":      inv_total,
+        "inv_meta":       inv_meta,
+        "atingimento":    atingimento,
+        "roas":           roas,
+        "rec_captada":    rec_captada_r,
+        "rec_faturada":   rec_faturada_r,
+        "inv_total_rep":  inv_total_r,
+        "pedidos_pagos":  pedidos_r,
+        "_fat_raw":       raw_fat,
+        "_inv_raw":       raw_inv_total_r,
+        "_rec_cap_raw":   raw_rec_captada,
+        "_rec_fat_raw":   raw_rec_faturada,
+        "_inv_rep_raw":   raw_inv_total_r,
+        "_pedidos_raw":   raw_pedidos,
+        "analise":        analise_kpis,
+        "client_name":    client_name,
+        "debug_info":     debug_info,
+        "debug_critico":  _debug_critico,
     }, None
+
+
+
 
 
 
@@ -3148,4 +3193,3 @@ with tab_config:
         Perfor Dashboard v2.0 • Meta Ads + Google Sheets + Google Ads • {datetime.now().strftime('%d/%m/%Y %H:%M')}
     </div>
     """, unsafe_allow_html=True)
-
