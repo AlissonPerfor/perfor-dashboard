@@ -11,6 +11,7 @@ import sys
 import time
 import base64
 import calendar
+import urllib.parse
 from datetime import datetime, timedelta, date
 import streamlit as st
 import plotly.graph_objects as go
@@ -124,41 +125,49 @@ CLIENTS = {
         'meta_id':  'act_10208187056689105',
         'gads_id':  '8064277480',
         'sheet_id': get_sheet_id('Shopping Litoral Sul'),
+        'whatsapp_group': 'https://chat.whatsapp.com/BhNLL4DqvidAJ9XA5poq7z',
     },
     'Magu Handmade': {
         'meta_id':  'act_224189357791046',
         'gads_id':  '2026596596',
         'sheet_id': get_sheet_id('Magu Handmade'),
+        'whatsapp_group': 'https://chat.whatsapp.com/JR1LlpTIj142nM681bYynm',
     },
     'Studio Zalmy': {
         'meta_id':  'act_1389314755518351',
         'gads_id':  '8247326862',
         'sheet_id': get_sheet_id('Studio Zalmy'),
+        'whatsapp_group': '',
     },
     'Bixo Ferpa': {
         'meta_id':  'act_538296215706105',
         'gads_id':  '1031210384',
         'sheet_id': get_sheet_id('Bixo Ferpa'),
+        'whatsapp_group': 'https://chat.whatsapp.com/DeK4sCBYeI6IbGb7JPYS3j',
     },
     'Carlota Costa': {
         'meta_id':  'act_723066385128063',
         'gads_id':  '6961343244',
         'sheet_id': get_sheet_id('Carlota Costa'),
+        'whatsapp_group': 'https://chat.whatsapp.com/I1X9ztCZ9UGC44EhidtWpv',
     },
     'Ritmi Studio': {
         'meta_id':  'act_293708673518428',
         'gads_id':  '7108808215',
         'sheet_id': get_sheet_id('Ritmi Studio'),
+        'whatsapp_group': 'https://chat.whatsapp.com/FGYveIWdEHMIdn8th5ePvx',
     },
     'W.Element': {
         'meta_id':  'act_1699445494150703',
         'gads_id':  '9556792643',
         'sheet_id': get_sheet_id('W.Element'),
+        'whatsapp_group': 'https://chat.whatsapp.com/ISOlq7ZSdKOJTtYkaXnx6G',
     },
     'Ferpa Pets': {
         'meta_id':  'act_972367007741930',
         'gads_id':  '7224993203',
         'sheet_id': get_sheet_id('Ferpa Pets'),
+        'whatsapp_group': 'https://chat.whatsapp.com/I0iVCIkPVP94ZQJhACNjrw',
     },
 }
 
@@ -2647,9 +2656,9 @@ with tab_overview:
 
     # Linhas 🔑 KPIs
     def _kpi_linha(label, real_str, meta_str, var, emoji):
-        base = f"➡️ {label}: {real_str}"
+        base = f"➡️ {label}: *{real_str}*"
         if meta_str and meta_str != "—":
-            base += f" | Meta: {meta_str}"
+            base += f" | Meta: *{meta_str}*"
         if var is not None:
             base += f" {_fmt_var(var)}"
         if emoji:
@@ -2676,17 +2685,17 @@ with tab_overview:
     )
 
     _linhas = [
-        f"Feedback de Resultados 📊",
+        f"*Feedback de Resultados* 📊",
         f"{_data_cab} · (Dia {_dia_rep}/{_total_rep} - {_prog_pct_rep:.0f}% do mês)",
         f"",
         f"💰 *Desempenho de Vendas*",
         f"",
-        f"➡️ Investimento Total: {_vc(_inv_rep)}",
-        f"➡️ Receita Captada: {_vc(_rec_cap)}",
-        f"➡️ Receita Faturada: {_vc(_rec_fat)}",
-        f"➡️ % de Pagamento: {f'{_pct_pgto:.2f}%' if _pct_pgto else '—'}",
-        f"➡️ Pedidos Pagos: {int(_pedidos) if _pedidos else '—'}",
-        f"➡️ ROAS: {f'{_roas_rep:.2f}x' if _roas_rep else '—'}",
+        f"➡️ Investimento Total: *{_vc(_inv_rep)}*",
+        f"➡️ Receita Captada: *{_vc(_rec_cap)}*",
+        f"➡️ Receita Faturada: *{_vc(_rec_fat)}*",
+        f"➡️ % de Pagamento: *{f'{_pct_pgto:.2f}%' if _pct_pgto else '—'}*",
+        f"➡️ Pedidos Pagos: *{int(_pedidos) if _pedidos else '—'}*",
+        f"➡️ ROAS: *{f'{_roas_rep:.2f}x' if _roas_rep else '—'}*",
         f"",
         f"🎯 *Desempenho de Receita e Investimento:*",
         f"",
@@ -2705,29 +2714,20 @@ with tab_overview:
 
     _linhas += [
         f"",
-        f"Perfor Branding · {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+        f"_Perfor Branding · {datetime.now().strftime('%d/%m/%Y %H:%M')}_",
     ]
 
     _report_final = "\n".join(_linhas)
 
     # ── Exibe e botões ────────────────────────────────────────────────
-    st.text_area(
-        "📋 Relatório gerado — selecione tudo (Ctrl+A) e copie:",
-        value=_report_final,
-        height=480,
-        key=f"report_{selected_client}_{period}",
-    )
+    st.code(_report_final, language=None)
 
-    _rc1, _rc2 = st.columns(2)
-    with _rc1:
-        if st.button("📋 Copiar", key=f"copy_{selected_client}_{period}", use_container_width=True):
-            st.toast("✅ Selecione o texto acima → Ctrl+A → Ctrl+C", icon="📋")
-    with _rc2:
-        _wapp = (
-            "https://wa.me/?text="
-            + _report_final.replace('\n', '%0A').replace(' ', '%20')
-        )
-        st.link_button("📲 Abrir no WhatsApp", url=_wapp, use_container_width=True)
+    _texto_encoded = urllib.parse.quote(_report_final, safe='')
+    st.link_button(
+        "📲 Abrir no WhatsApp",
+        url=f"https://web.whatsapp.com/send?text={_texto_encoded}",
+        use_container_width=True,
+    )
 
 
 # ══════════════════════════════════════════════════════════
@@ -3148,3 +3148,4 @@ with tab_config:
         Perfor Dashboard v2.0 • Meta Ads + Google Sheets + Google Ads • {datetime.now().strftime('%d/%m/%Y %H:%M')}
     </div>
     """, unsafe_allow_html=True)
+
