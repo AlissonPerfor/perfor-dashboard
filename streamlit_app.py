@@ -1348,19 +1348,24 @@ def fetch_gps_cells(client_name):
     _col_leg, _row_rec_leg, _row_fat_meta_leg, _row_inv_leg, _row_inv_meta_leg = \
         get_gps_coords(client_name)
 
-    # Meta Receita Faturada — Zona 2 (idx 55+)
-    # Ordem: TOTAL primeiro (Ferpa Pet / Bixo Ferpa), depois genérico.
-    # Zalmy: "receita faturada" existe em Z2 com valor correto (R$330k).
-    _row_fat_meta = find_row_by_label(
-        gps_all, [
-            "receita faturada total",   # Ferpa Pet / Bixo Ferpa
-            "receita faturada",         # Zalmy + demais
-            "faturamento realizado total",
-            "meta faturamento", "meta receita",
-        ],
-        Z2_S, Z2_E, fallback=_row_fat_meta_leg,
-        metric_name="Meta Faturamento",
-    )
+    # Meta Receita Faturada — linha hardcoded para Ferpa/Bixo,
+    # busca dinâmica Z2 para os demais.
+    # Linha 68 planilha = idx 67 (Bixo Ferpa  — 'Receita Faturada TOTAL')
+    # Linha 67 planilha = idx 66 (Ferpa Pets   — 'Receita Faturada TOTAL')
+    if client_name == 'Bixo Ferpa':
+        _row_fat_meta = 67   # planilha linha 68, 0-based
+    elif client_name == 'Ferpa Pets':
+        _row_fat_meta = 66   # planilha linha 67, 0-based
+    else:
+        _row_fat_meta = find_row_by_label(
+            gps_all, [
+                "receita faturada total",
+                "receita faturada",
+                "meta faturamento", "meta receita",
+            ],
+            Z2_S, Z2_E, fallback=_row_fat_meta_leg,
+            metric_name="Meta Faturamento",
+        )
     # Meta Investimento = busca "investimento total" na zona metas
     _row_inv_meta = find_row_by_label(
         gps_all, ["investimento total", "meta investimento", "orcamento"],
@@ -2079,7 +2084,11 @@ with tab_portfolio:
                     </div>
                     """, unsafe_allow_html=True)
 
-            # ── Título + Seletor na mesma linha, sem gap ─────────────
+            st.markdown(
+                "<div style='margin-top:30px'></div>",
+                unsafe_allow_html=True
+            )
+            # ── Título + Seletor na mesma linha ──────────────────────
             _hcol_title, _hcol_sort = st.columns([2, 1])
             with _hcol_title:
                 st.markdown(
