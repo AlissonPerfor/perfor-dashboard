@@ -209,6 +209,12 @@ GPS_CLIENT_ROWS = {
     'Ferpa Pets':           {'rec': 7,  'meta_rec': 67, 'inv': 16, 'meta_inv': 73},
 }
 
+# ── Metas de Faturamento Hardcoded (Overrides para Março) ──
+METAS_FATURAMENTO_MARCO = {
+    'Bixo Ferpa': 135958.37,
+    'Ferpa Pets': 63488.00,
+}
+
 def get_gps_coords(client_name):
     """
     Retorna (col_idx, row_rec, row_meta_rec, row_inv, row_meta_inv)
@@ -263,35 +269,38 @@ except ImportError:
 
 
 # ─────────────────────────────────────────
-#  PALETA DE CORES — PERFOR BRAND (v3)
-#  Inspirado no Relatório por Estados
+#  PALETA DE CORES — PERFOR BRAND (v4)
+#  Manual de Marca: Grafite Profundo + Verde Perfor
 # ─────────────────────────────────────────
-MINT      = '#00FF88'          # Faturamento / Positivo
-BLUE      = '#00D1FF'          # Investimento / Info
-PURPLE    = '#9F7AEA'          # Secundário / Neutro
-MINT_DIM  = '#00CC6E'
-MINT_GLOW = '#00FF88'
-MINT_BG   = 'rgba(0,255,136,0.07)'
-MINT_BG2  = 'rgba(0,255,136,0.13)'
-BLUE_BG   = 'rgba(0,209,255,0.07)'
-BLUE_BG2  = 'rgba(0,209,255,0.13)'
+MINT      = '#00D592'          # Verde Perfor — destaques, sucesso, CTA
+BLUE      = '#3B9EFF'          # Azul informativo
+PURPLE    = '#9F7AEA'          # Secundário / neutro
+MINT_DIM  = '#00B87A'          # Verde escuro para hover
+MINT_GLOW = '#00D592'
+MINT_BG   = 'rgba(0,213,146,0.07)'
+MINT_BG2  = 'rgba(0,213,146,0.13)'
+BLUE_BG   = 'rgba(59,158,255,0.07)'
+BLUE_BG2  = 'rgba(59,158,255,0.13)'
 PURP_BG   = 'rgba(159,122,234,0.10)'
 PURP_BG2  = 'rgba(159,122,234,0.18)'
 
 C = {
-    'bg':         '#0A0A0A',   # fundo da página
-    'card':       '#121212',   # cards / containers
-    'card2':      '#181818',   # cards secundários
-    'border':     '#262626',   # bordas
-    'text':       '#E8E8E8',
-    'dim':        '#6B7280',
+    'bg':         '#0E0E0E',   # Grafite Profundo — fundo da página
+    'sidebar':    '#161616',   # Sidebar ligeiramente mais clara
+    'card':       '#1A1A1A',   # Cards / containers
+    'card2':      '#202020',   # Cards secundários / cabeçalhos de tabela
+    'border':     '#2A2A2A',   # Bordas sutis
+    'border2':    '#333333',   # Bordas de hover / foco
+    'text':       '#EFEFEF',   # Texto principal
+    'text2':      '#C0C0C0',   # Texto secundário
+    'dim':        '#6B7280',   # Labels, metadados
     'mint':       MINT,
     'blue':       BLUE,
     'purple':     PURPLE,
-    'red':        '#FF4D6A',
-    'red_soft':   'rgba(255,77,106,0.10)',
-    'red_border': 'rgba(255,77,106,0.28)',
-    'orange':     '#F6AD55',
+    'red':        '#F05C6E',
+    'red_soft':   'rgba(240,92,110,0.10)',
+    'red_border': 'rgba(240,92,110,0.28)',
+    'orange':     '#F5A623',
     'green':      MINT,
     'yellow':     '#F6E05E',
 }
@@ -323,16 +332,21 @@ st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-/* ── Base ───────────────────────────────────────────── */
-.stApp {{
-    background: {C['bg']};
-    font-family: 'Inter', sans-serif;
+/* ── Tipografia e Base ───────────────────────────────── */
+body, .stApp {{
+    background: {C['bg']} !important;
+    font-family: 'Inter', 'Galano Grotesque', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    color: {C['text']};
 }}
 
-/* ── Conteúdo principal e sidebar — ver bloco CSS dedicado abaixo ── */
-/* (padding-top e sidebar gaps gerenciados fora do f-string) */
+/* ── Área de conteúdo principal ─────────────────────── */
+.main .block-container {{
+    padding-top: 2rem;
+    max-width: 1400px;
+}}
 
-/* ── Tabs — minimalistas, sem numeração ─────────────── */
+/* ── Tabs — mantido para compatibilidade (não usado) ── */
 .stTabs [data-baseweb="tab-list"] {{
     gap: 2px;
     background: transparent;
@@ -375,8 +389,8 @@ header button {{
     opacity: 1 !important;
     visibility: visible !important;
     color: {MINT} !important;
-    background: rgba(0,255,136,0.12) !important;
-    border: 1px solid rgba(0,255,136,0.30) !important;
+    background: rgba(0,213,146,0.10) !important;
+    border: 1px solid rgba(0,213,146,0.25) !important;
     border-radius: 8px !important;
 }}
 [data-testid="stSidebarCollapsedControl"] {{
@@ -384,57 +398,78 @@ header button {{
     left: 12px !important; z-index: 999999 !important;
 }}
 
-/* ── Sidebar base ────────────────────────────────────── */
+/* ── Sidebar — Minimalista Perfor ───────────────────── */
 section[data-testid="stSidebar"] {{
-    background: {C['card']};
-    border-right: 1px solid {C['border']};
+    background: {C['sidebar']} !important;
+    border-right: 1px solid {C['border']} !important;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.3);
 }}
 section[data-testid="stSidebar"] .stMarkdown p,
-section[data-testid="stSidebar"] .stMarkdown li,
-section[data-testid="stSidebar"] label {{
-    color: {C['text']} !important;
+section[data-testid="stSidebar"] .stMarkdown li {{
+    color: {C['text2']} !important;
+    font-size: 0.875rem !important;
 }}
-section[data-testid="stSidebar"] .stRadio label span {{
-    color: {C['text']} !important;
-}}
+/* label genérico removido — radio e selectbox têm CSS próprio */
 section[data-testid="stSidebar"] .stMarkdown {{
     margin-top: 0 !important;
     margin-bottom: 0 !important;
 }}
 section[data-testid="stSidebar"] hr {{
-    margin-top: 0.3rem !important;
-    margin-bottom: 0.3rem !important;
+    margin-top: 0.5rem !important;
+    margin-bottom: 0.5rem !important;
     border-color: {C['border']} !important;
+    opacity: 0.6;
 }}
+/* Radio nav — item padrão cinza, selecionado verde */
+section[data-testid="stSidebar"] .stRadio label span {{
+    color: {C['dim']} !important;
+    font-size: 0.875rem !important;
+    font-weight: 400;
+    transition: color 0.15s;
+}}
+section[data-testid="stSidebar"] .stRadio [data-testid="stWidgetLabel"] {{
+    display: none;  /* esconde label do radio */
+}}
+/* Item selecionado */
+section[data-testid="stSidebar"] .stRadio input:checked + div p,
+section[data-testid="stSidebar"] .stRadio input:checked ~ div p {{
+    color: {MINT} !important;
+    font-weight: 600 !important;
+}}
+/* Selectbox — estilos gerenciados pelo CSS inline da sidebar */
+/* Sidebar buttons — estilos gerenciados pelo CSS inline da sidebar */
+/* Este bloco foi neutralizado para evitar conflito com o tema v9 */
 .sidebar-logo {{
     text-align: center;
     padding: 0 16px 6px;
-    border-bottom: 1px solid {C['border']};
 }}
 .sidebar-logo img {{ max-width: 130px; height: auto; }}
 
 /* ── Hero header ─────────────────────────────────────── */
 .hero-header {{
-    background: linear-gradient(135deg, {C['card']} 0%, {C['card2']} 50%, {C['card']} 100%);
+    background: linear-gradient(135deg, {C['card']} 0%, {C['card2']} 100%);
     border: 1px solid {C['border']};
-    padding: 28px 32px;
+    border-left: 3px solid {MINT};
+    padding: 24px 28px;
     border-radius: 12px;
-    margin-bottom: 24px;
+    margin-bottom: 20px;
     position: relative; overflow: hidden;
 }}
 .hero-header::before {{
     content: '';
     position: absolute; top: 0; left: 0; right: 0; bottom: 0;
-    background: radial-gradient(ellipse at 20% 50%, {MINT_BG} 0%, transparent 60%);
+    background: radial-gradient(ellipse at 10% 50%, rgba(0,213,146,0.05) 0%, transparent 55%);
+    pointer-events: none;
 }}
 .hero-header h1 {{
-    margin: 0; font-size: 1.8rem; font-weight: 800;
-    letter-spacing: -0.5px; position: relative;
-    color: {MINT} !important;
+    margin: 0; font-size: 1.6rem; font-weight: 700;
+    letter-spacing: -0.4px; position: relative;
+    color: {C['text']} !important;
 }}
 .hero-header p {{
-    margin: 6px 0 0; font-size: 0.9rem;
+    margin: 5px 0 0; font-size: 0.82rem;
     position: relative; color: {C['dim']} !important;
+    font-weight: 400;
 }}
 
 /* ── KPI grid (Visão Geral) ─────────────────────────── */
@@ -444,16 +479,22 @@ section[data-testid="stSidebar"] hr {{
     gap: 14px; margin-bottom: 24px;
 }}
 .kpi {{
-    background: {C['card']};
+    background: linear-gradient(160deg, {C['card']} 0%, {C['card2']} 100%);
     border: 1px solid {C['border']};
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 18px 14px; text-align: center;
-    transition: transform 0.2s, box-shadow 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+    position: relative; overflow: hidden;
+}}
+.kpi::before {{
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(ellipse at top, rgba(0,213,146,0.04) 0%, transparent 70%);
+    pointer-events: none;
 }}
 .kpi:hover {{
     transform: translateY(-3px);
-    box-shadow: 0 6px 24px rgba(0,255,136,0.08);
-    border-color: rgba(0,255,136,0.22);
+    box-shadow: 0 8px 28px rgba(0,213,146,0.10);
+    border-color: rgba(0,213,146,0.28);
 }}
 .kpi-icon {{ font-size: 1.5rem; margin-bottom: 6px; }}
 .kpi-val  {{ font-size: 1.2rem; font-weight: 700; margin-bottom: 3px; }}
@@ -469,13 +510,44 @@ section[data-testid="stSidebar"] hr {{
 
 /* ── KPI card (Portfólio) ───────────────────────────── */
 .kpi-card {{
-    background: {C['card']};
+    background: linear-gradient(160deg, {C['card']} 0%, {C['card2']} 100%);
     border: 1px solid {C['border']};
-    border-radius: 12px;
-    padding: 18px 14px; text-align: center;
+    border-radius: 14px;
+    padding: 20px 16px; text-align: center;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+    position: relative; overflow: hidden;
 }}
-.kpi-card-value {{ font-size: 1.3rem; font-weight: 800; margin-bottom: 2px; }}
-.kpi-card-label {{ font-size: 0.68rem; color: {C['dim']}; text-transform: uppercase; letter-spacing: 0.5px; }}
+.kpi-card::before {{
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at top, rgba(0,213,146,0.04) 0%, transparent 70%);
+    pointer-events: none;
+}}
+.kpi-card:hover {{
+    border-color: rgba(0,213,146,0.30) !important;
+    box-shadow: 0 4px 20px rgba(0,213,146,0.08);
+    transform: translateY(-2px);
+}}
+.kpi-card-value {{ font-size: 1.4rem; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.5px; }}
+.kpi-card-label {{ font-size: 0.65rem; color: {C['dim']}; text-transform: uppercase; letter-spacing: 0.8px; font-weight: 500; }}
+
+/* ── KPI card glow — apenas card de Faturamento Realizado ── */
+.kpi-card-glow {{
+    background: linear-gradient(160deg, {C['card']} 0%, {C['card2']} 100%) !important;
+    border: 1px solid rgba(0,213,146,0.22) !important;
+    box-shadow:
+        0 0 0 1px rgba(0,213,146,0.06) inset,
+        0 4px 24px rgba(0,213,146,0.08) !important;
+}}
+.kpi-card-glow::before {{
+    background: radial-gradient(ellipse at 50% 0%, rgba(0,213,146,0.10) 0%, transparent 65%) !important;
+}}
+.kpi-card-glow:hover {{
+    border-color: rgba(0,213,146,0.40) !important;
+    box-shadow:
+        0 0 0 1px rgba(0,213,146,0.10) inset,
+        0 8px 32px rgba(0,213,146,0.14) !important;
+}}
 
 /* ── Section label (acima das tabelas) ──────────────── */
 .section-label {{
@@ -532,7 +604,7 @@ section[data-testid="stSidebar"] hr {{
     font-size: 0.80rem; color: {C['text']};
 }}
 .port-table-wrap thead th {{
-    background: #0D0D0D;
+    background: {C['card2']};
     color: {C['dim']};
     font-weight: 600; text-transform: uppercase;
     font-size: 0.63rem; letter-spacing: 0.5px;
@@ -548,7 +620,7 @@ section[data-testid="stSidebar"] hr {{
     border-bottom: 1px solid {C['border']};
     transition: background 0.12s;
 }}
-.port-table-wrap tbody tr:hover {{ background: rgba(0,255,136,0.045) !important; }}
+.port-table-wrap tbody tr:hover {{ background: rgba(0,213,146,0.04) !important; }}
 .port-table-wrap td {{
     padding: 12px 14px; white-space: nowrap;
     text-align: right; font-variant-numeric: tabular-nums;
@@ -574,7 +646,7 @@ section[data-testid="stSidebar"] hr {{
     font-size: 0.82rem; color: {C['text']};
 }}
 .table-wrapper thead th {{
-    background: #0D0D0D; color: {C['dim']};
+    background: {C['card2']}; color: {C['dim']};
     font-weight: 600; text-transform: uppercase;
     font-size: 0.65rem; letter-spacing: 0.5px;
     padding: 12px 12px; text-align: right;
@@ -653,7 +725,7 @@ section[data-testid="stSidebar"] hr {{
     border-radius:12px; overflow:hidden;
     transition:transform 0.2s, box-shadow 0.2s;
 }}
-.creative-card:hover {{ transform:translateY(-4px); box-shadow:0 10px 30px rgba(0,255,136,0.08); border-color:rgba(0,255,136,0.22); }}
+.creative-card:hover {{ transform:translateY(-4px); box-shadow:0 10px 28px rgba(0,213,146,0.08); border-color:rgba(0,213,146,0.22); }}
 .creative-thumb-wrap {{ width:100%; max-height:300px; background:{C['card']}; border-bottom:1px solid {C['border']}; display:flex; align-items:center; justify-content:center; overflow:hidden; }}
 .creative-thumb {{ max-width:100%; max-height:300px; object-fit:contain; display:block; }}
 .creative-thumb-placeholder {{ width:100%; height:160px; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; background:{C['card2']}; color:{C['dim']}; font-size:2rem; border-bottom:1px solid {C['border']}; }}
@@ -664,10 +736,45 @@ section[data-testid="stSidebar"] hr {{
 .creative-metric {{ background:{C['bg']}; border-radius:8px; padding:8px 10px; text-align:center; }}
 .cm-val {{ font-size:0.95rem; font-weight:700; margin-bottom:2px; }}
 .cm-lbl {{ font-size:0.6rem; color:{C['dim']}; text-transform:uppercase; letter-spacing:0.3px; }}
-.creative-insight {{ background:{MINT_BG}; border:1px solid rgba(0,255,136,0.16); border-radius:8px; padding:10px 12px; }}
+.creative-insight {{ background:{MINT_BG}; border:1px solid rgba(0,213,146,0.14); border-radius:8px; padding:10px 12px; }}
 .creative-insight-alert {{ background:{C['red_soft']}; border:1px solid {C['red_border']}; border-radius:8px; padding:10px 12px; }}
 .ci-title {{ font-size:0.65rem; color:{C['dim']}; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:4px; }}
 .ci-text  {{ font-size:0.8rem; font-weight:500; }}
+
+/* ── Indicadores de aceleração (flechas) ────────────── */
+.arrow-up   {{ color:{MINT};       font-weight:700; font-size:0.82rem; }}
+.arrow-down {{ color:{C['red']};   font-weight:700; font-size:0.82rem; }}
+.arrow-flat {{ color:{C['orange']}; font-weight:700; font-size:0.82rem; }}
+
+.metric-delta-up {{
+    display:inline-flex; align-items:center; gap:3px;
+    background: rgba(0,213,146,0.10); color:{MINT};
+    border-radius:6px; padding:2px 8px;
+    font-size:0.74rem; font-weight:700;
+}}
+.metric-delta-down {{
+    display:inline-flex; align-items:center; gap:3px;
+    background: rgba(240,92,110,0.10); color:{C['red']};
+    border-radius:6px; padding:2px 8px;
+    font-size:0.74rem; font-weight:700;
+}}
+.metric-delta-flat {{
+    display:inline-flex; align-items:center; gap:3px;
+    background: rgba(245,166,35,0.10); color:{C['orange']};
+    border-radius:6px; padding:2px 8px;
+    font-size:0.74rem; font-weight:700;
+}}
+
+/* ── Divider estilizado ──────────────────────────────── */
+.stDivider {{ border-color: {C['border']} !important; opacity:0.5; }}
+
+/* ── Scrollbar customizada ───────────────────────────── */
+::-webkit-scrollbar {{ width:5px; height:5px; }}
+::-webkit-scrollbar-track {{ background:{C['bg']}; }}
+::-webkit-scrollbar-thumb {{
+    background: {C['border2']}; border-radius:99px;
+}}
+::-webkit-scrollbar-thumb:hover {{ background: {MINT}; }}
 
 /* ── Hide Streamlit chrome ───────────────────────────── */
 #MainMenu {{ visibility:hidden; }}
@@ -719,6 +826,18 @@ def roas_color(v):
     if v >= 4:   return MINT
     if v >= 3.8: return C['orange']
     return C['red']
+
+def delta_html(value: float, suffix: str = '%', invert: bool = False) -> str:
+    """Badge HTML com flecha ↑↓→ para indicadores de variação.
+    invert=True para métricas onde subir é ruim (CPA, CPS).
+    """
+    if abs(value) < 0.5:
+        return f'<span class="metric-delta-flat">→ {value:+.1f}{suffix}</span>'
+    good = (value > 0) if not invert else (value < 0)
+    if good:
+        return f'<span class="metric-delta-up">↑ {value:+.1f}{suffix}</span>'
+    return f'<span class="metric-delta-down">↓ {value:+.1f}{suffix}</span>'
+
 
 
 # ─────────────────────────────────────────
@@ -889,6 +1008,7 @@ def fetch_creative_insights(_account, time_range_params_tuple):
     time_range_params = dict(time_range_params_tuple)
     fields = [
         'ad_name', 'ad_id',
+        'campaign_name', 'campaign_id',
         'impressions', 'clicks', 'spend',
         'ctr', 'actions', 'action_values',
         'cost_per_action_type', 'purchase_roas',
@@ -923,8 +1043,10 @@ def fetch_creative_insights(_account, time_range_params_tuple):
         ctr_v     = float(ins.get('ctr', 0))
         conv_rate = (purchases / clicks * 100) if clicks > 0 else 0
         creatives.append({
-            'name': ins.get('ad_name', 'N/A'),
-            'ad_id': ad_id,
+            'name':          ins.get('ad_name', 'N/A'),
+            'ad_id':         ad_id,
+            'campaign_name': ins.get('campaign_name', '—'),
+            'campaign_id':   ins.get('campaign_id', ''),
             'spend': spend, 'impressions': impressions,
             'clicks': clicks, 'ctr': ctr_v,
             'purchases': purchases, 'conv_val': conv_val,
@@ -1125,11 +1247,8 @@ def fetch_gps_cells(client_name):
     def find_row_by_label(matrix, keywords, row_start, row_end,
                           fallback=None, metric_name="", exact=False):
         """
-        Varre matrix[row_start:row_end) verificando col A (idx 0) e col B (idx 1).
-        NUNCA retorna um idx fora de [row_start, row_end).
-        exact=True  → cell normalizado deve ser IGUAL a um keyword.
-        exact=False → keyword (len>4) é substring do cell.
-        Fallback + aviso no console se não encontrar.
+        Busca linha por rótulo dentro da zona [row_start, row_end).
+        Retorna fallback (ou None) se não encontrar — sem print, sem deep scan.
         """
         norm_kws = {_norm(k) for k in keywords}
         end = min(row_end, len(matrix))
@@ -1144,12 +1263,7 @@ def fetch_gps_cells(client_name):
                     for kw in norm_kws:
                         if kw == cell or (len(kw) > 4 and kw in cell):
                             return ri
-        print(
-            f"[GPS label not found] client={client_name!r} "
-            f"metric={metric_name!r} keywords={keywords} "
-            f"zona={row_start}-{row_end} fallback={fallback}"
-        )
-        return fallback
+        return fallback  # silencioso — sem print, sem retry
 
     def _open_retry(key, tries=3):
         for _a in range(tries):
@@ -1348,24 +1462,17 @@ def fetch_gps_cells(client_name):
     _col_leg, _row_rec_leg, _row_fat_meta_leg, _row_inv_leg, _row_inv_meta_leg = \
         get_gps_coords(client_name)
 
-    # Meta Receita Faturada — linha hardcoded para Ferpa/Bixo,
-    # busca dinâmica Z2 para os demais.
-    # Linha 68 planilha = idx 67 (Bixo Ferpa  — 'Receita Faturada TOTAL')
-    # Linha 67 planilha = idx 66 (Ferpa Pets   — 'Receita Faturada TOTAL')
-    if client_name == 'Bixo Ferpa':
-        _row_fat_meta = 67   # planilha linha 68, 0-based
-    elif client_name == 'Ferpa Pets':
-        _row_fat_meta = 66   # planilha linha 67, 0-based
-    else:
-        _row_fat_meta = find_row_by_label(
-            gps_all, [
-                "receita faturada total",
-                "receita faturada",
-                "meta faturamento", "meta receita",
-            ],
-            Z2_S, Z2_E, fallback=_row_fat_meta_leg,
-            metric_name="Meta Faturamento",
-        )
+    # Meta Receita Faturada — busca por rótulo na Zona 2 (idx 55+)
+    # Retorna 0.0 se não encontrar; sem deep scan para não travar.
+    _row_fat_meta = find_row_by_label(
+        gps_all, [
+            "receita faturada total",
+            "receita faturada",
+            "meta faturamento", "meta receita",
+        ],
+        Z2_S, Z2_E, fallback=_row_fat_meta_leg,
+        metric_name="Meta Faturamento",
+    )
     # Meta Investimento = busca "investimento total" na zona metas
     _row_inv_meta = find_row_by_label(
         gps_all, ["investimento total", "meta investimento", "orcamento"],
@@ -1412,23 +1519,11 @@ def fetch_gps_cells(client_name):
     inv_total      = _parse_safe(raw_inv_total_r)
     inv_meta       = _parse_safe(raw_inv_meta_r)
 
-    # ── Fallback TOTAL scan: se fat_meta == 0 após busca Z2 ──────
-    # Varre planilha inteira (idx 0-100) procurando linha com 'TOTAL'
-    # na col A E valor numérico não-zero na col do mês.
-    # Garante captura do faturamento de R$136k/R$63k no Ferpa/Bixo.
-    if fat_meta == 0.0:
-        for _fi in range(min(100, len(gps_all))):
-            _cell_a = _norm(gps_all[_fi][0]) if gps_all[_fi] else ''
-            if 'total' in _cell_a and ('receita' in _cell_a or 'faturamento' in _cell_a):
-                _candidate = _parse_safe(_safe_cell(gps_all, _fi, col_idx))
-                if _candidate > 0:
-                    fat_meta = _candidate
-                    print(
-                        f"[GPS fallback TOTAL] client={client_name!r} "
-                        f"encontrou fat_meta={fat_meta} na linha {_fi} "
-                        f"({_cell_a!r})"
-                    )
-                    break
+    # ── Override de Metas de Faturamento para Março ──
+    if datetime.now().month == 3:
+        if client_name in METAS_FATURAMENTO_MARCO:
+            fat_meta = METAS_FATURAMENTO_MARCO[client_name]
+
 
     atingimento    = (fat_real / fat_meta * 100) if fat_meta > 0 else 0.0
 
@@ -1646,165 +1741,357 @@ def parse_number(v):
 # ─────────────────────────────────────────
 #  SIDEBAR
 # ─────────────────────────────────────────
+# ─────────────────────────────────────────
+#  SIDEBAR — Premium Perfor Brand
+# ─────────────────────────────────────────
 with st.sidebar:
+
+    # ── Estado lido ANTES de qualquer widget ─────────────────────
+    if 'page' not in st.session_state:
+        st.session_state.page = 'portfolio'
+    _cur = st.session_state.page   # 'portfolio' | 'report' | 'config'
+
+    # ── CSS — string PURA (sem f-string) — chaves CSS livres ──────
     st.markdown("""
 <style>
-    /* ── Topo: padding limpo, sem encavalamento ── */
-    section[data-testid="stSidebar"] > div:first-child {
-        padding-top: 1rem !important;
-        padding-left: 1.2rem !important;
-        padding-right: 1.2rem !important;
-    }
-    [data-testid="stSidebarUserContent"] {
-        padding-top: 0 !important;
-        padding-bottom: 1.5rem !important;
-    }
+/* ═══════════════════════════════════════════════════════════════
+   PERFOR SIDEBAR — FINAL
+   Grafite #141414 · Verde #00D592 · Navegação via st.radio
+═══════════════════════════════════════════════════════════════ */
 
-    /* Oculta nav multipage automático */
-    [data-testid="stSidebarNav"] {
-        display: none !important;
-    }
+/* ── Base ── */
+section[data-testid="stSidebar"] {
+    background: #141414 !important;
+    border-right: 1px solid #1E1E1E !important;
+}
+/* Zera TODOS os wrappers internos do Streamlit que criam espaço lateral */
+section[data-testid="stSidebar"] > div:first-child,
+[data-testid="stSidebarUserContent"],
+[data-testid="stSidebarUserContent"] > div,
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"],
+[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"],
+[data-testid="stSidebar"] .stElementContainer,
+[data-testid="stSidebar"] .block-container {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+[data-testid="stSidebarNav"]  { display: none !important; }
+[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
 
-    /* Gap entre blocos verticais */
-    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
-        gap: 1.2rem !important;
-    }
+/* ── Logo ── */
+.psb-logo { padding: 20px 16px 30px; border-bottom: 1px solid #1E1E1E; }
+.psb-logo img { display: block; margin: 0 auto; width: 220px; max-width: 100%; }
 
-    /* ── Títulos de seção — Verde Neon Perfor ── */
-    .perfor-section-title {
-        font-size: 1rem !important;
-        font-weight: 800 !important;
-        color: #00FF88 !important;
-        letter-spacing: 0.3px;
-        margin: 0 0 0.3rem 0;
-        line-height: 1.3;
-    }
+/* ── Selectbox: sem padding lateral — mesma largura do radio ── */
+[data-testid="stSidebar"] .stSelectbox { padding: 2px 0 0; }
 
-    /* Separador entre seções */
-    .perfor-divider {
-        border: none;
-        border-top: 1px solid #262626;
-        margin: 0;
-    }
+/* ── Label de seção ALL CAPS ── */
+.psb-sec {
+    display: block;
+    font-size: 0.575rem;
+    font-weight: 700;
+    letter-spacing: 1.9px;
+    text-transform: uppercase;
+    color: #2A2F3A;
+    padding: 15px 20px 4px;
+    margin: 0;
+}
 
-    /* Texto dos radio buttons e labels */
-    [data-testid="stSidebar"] .stRadio label p,
-    [data-testid="stSidebar"] .stRadio label {
-        color: #E8E8E8 !important;
-        font-size: 0.9rem !important;
-    }
+/* ── Separador ── */
+.psb-hr { height: 1px; background: #1E1E1E; margin: 4px 0; }
 
-    /* Espaçamento entre opções do radio */
-    [data-testid="stSidebar"] .stRadio > div {
-        gap: 4px !important;
-    }
+/* ═══════════════════════════════════════════════════════════════
+   RADIO — EDGE TO EDGE (v-final)
 
-    /* Selectbox — texto da opção selecionada */
-    [data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
-        background-color: #1a1a1a !important;
-        border-color: #333333 !important;
-        color: #E8E8E8 !important;
-    }
+   DOM do Streamlit:
+   .stRadio
+     └─ div  (flex-wrap:wrap por padrão — PRECISA virar block)
+          └─ div  (wrapper por item — precisa de width:100%)
+               └─ label  (o elemento clicável)
+                    └─ div  (bolinha — esconder)
+                    └─ div > p  (texto)
 
-    /* Botão Atualizar — borda verde neon */
-    [data-testid="stSidebar"] .stButton > button {
-        background-color: transparent !important;
-        border: 1.5px solid #00FF88 !important;
-        color: #00FF88 !important;
-        font-weight: 600 !important;
-        border-radius: 8px !important;
-        transition: background 0.2s;
-    }
-    [data-testid="stSidebar"] .stButton > button:hover {
-        background-color: rgba(0,255,136,0.1) !important;
-    }
+   A chave: cada camada deve ser display:block + width:100%
+   para que o label realmente ocupe toda a largura.
+═══════════════════════════════════════════════════════════════ */
+[data-testid="stSidebar"] .stRadio {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+[data-testid="stSidebar"] .stRadio [data-testid="stWidgetLabel"] {
+    display: none !important;
+}
 
-    /* Rodapé */
-    .perfor-sidebar-footer {
-        font-size: 0.65rem;
-        color: #6B7280;
-        line-height: 1.5;
-        margin-top: 0.25rem;
-    }
+/* Nível 1: container flex → block para não limitar filhos */
+[data-testid="stSidebar"] .stRadio > div {
+    display: block !important;
+    width: 100% !important;
+    gap: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Nível 2: wrapper de cada item */
+[data-testid="stSidebar"] .stRadio > div > div {
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Nível 3: o label clicável — ocupa 100%, borda na esquerda */
+[data-testid="stSidebar"] .stRadio > div > div > label,
+[data-testid="stSidebar"] .stRadio > div > label {
+    display: flex !important;
+    align-items: center !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    height: 44px !important;
+    padding: 0 20px 0 16px !important;
+    margin: 0 !important;
+    border-left: 4px solid transparent !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    cursor: pointer !important;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+/* Esconde bolinha (div wrapper) e input nativo */
+[data-testid="stSidebar"] .stRadio > div > div > label > div:first-child,
+[data-testid="stSidebar"] .stRadio > div > label > div:first-child,
+[data-testid="stSidebar"] .stRadio input[type="radio"] {
+    display: none !important;
+}
+
+/* Texto inativo */
+[data-testid="stSidebar"] .stRadio label p,
+[data-testid="stSidebar"] .stRadio label span {
+    color: #5C6474 !important;
+    font-size: 0.855rem !important;
+    font-weight: 400 !important;
+    transition: color 0.12s;
+    line-height: 1;
+    margin: 0;
+    pointer-events: none;
+}
+
+/* Hover */
+[data-testid="stSidebar"] .stRadio > div > div > label:hover,
+[data-testid="stSidebar"] .stRadio > div > label:hover {
+    background: rgba(255,255,255,0.03) !important;
+}
+[data-testid="stSidebar"] .stRadio > div > div > label:hover p,
+[data-testid="stSidebar"] .stRadio > div > div > label:hover span,
+[data-testid="stSidebar"] .stRadio > div > label:hover p,
+[data-testid="stSidebar"] .stRadio > div > label:hover span {
+    color: #8E97A8 !important;
+}
+
+/* ─── ITEM ATIVO: barra verde + fundo + texto ─────────────── */
+[data-testid="stSidebar"] .stRadio > div > div > label:has(input:checked),
+[data-testid="stSidebar"] .stRadio > div > label:has(input:checked) {
+    border-left-color: #00D592 !important;
+    background: rgba(0,213,146,0.08) !important;
+}
+[data-testid="stSidebar"] .stRadio > div > div > label:has(input:checked) p,
+[data-testid="stSidebar"] .stRadio > div > div > label:has(input:checked) span,
+[data-testid="stSidebar"] .stRadio > div > label:has(input:checked) p,
+[data-testid="stSidebar"] .stRadio > div > label:has(input:checked) span {
+    color: #00D592 !important;
+    font-weight: 600 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SELECTBOX — mesma largura do radio (sem padding lateral)
+═══════════════════════════════════════════════════════════════ */
+[data-testid="stSidebar"] .stSelectbox { padding: 2px 0 0; }
+[data-testid="stSidebar"] .stSelectbox label { display: none !important; }
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div {
+    background: #1A1A1A !important;
+    border: 1px solid #252525 !important;
+    border-radius: 8px !important;
+    color: #C0C5D0 !important;
+    font-size: 0.82rem !important;
+    box-shadow: none !important;
+}
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"]:focus-within > div {
+    border-color: rgba(0,213,146,0.4) !important;
+    box-shadow: 0 0 0 2px rgba(0,213,146,0.07) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BOTÃO ATUALIZAR — CTA verde, único na sidebar
+   Sobrescreve qualquer CSS herdado do tema global
+═══════════════════════════════════════════════════════════════ */
+[data-testid="stSidebar"] .stButton { padding: 0 16px; }
+[data-testid="stSidebar"] .stButton > button {
+    background: rgba(0,213,146,0.07) !important;
+    border: 1px solid rgba(0,213,146,0.28) !important;
+    border-radius: 10px !important;
+    color: #00D592 !important;
+    font-size: 0.76rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    padding: 8px 14px !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    transition: background 0.18s, box-shadow 0.18s, border-color 0.18s !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    background: rgba(0,213,146,0.13) !important;
+    border-color: rgba(0,213,146,0.5) !important;
+    box-shadow: 0 0 16px rgba(0,213,146,0.12) !important;
+}
+[data-testid="stSidebar"] .stButton > button:active { transform: scale(0.97); }
+[data-testid="stSidebar"] .stButton > button:focus  { box-shadow: none !important; }
+
+/* ═══════════════════════════════════════════════════════════════
+   RODAPÉ
+═══════════════════════════════════════════════════════════════ */
+.psb-footer {
+    font-size: 0.575rem;
+    color: #282D38;
+    line-height: 1.8;
+    padding: 10px 20px 14px;
+    border-top: 1px solid #1E1E1E;
+}
+[data-testid="stSidebar"] .stCaption { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
-    # ── Logo ─────────────────────────────────────────────────────
+    # ── Logo centralizada (única) ─────────────────────────────────
     if logo_b64:
         st.markdown(
-            f'<div style="text-align:center; margin-bottom:0.25rem;">'
-            f'<img src="data:image/png;base64,{logo_b64}" '
-            f'width="160" style="display:block; margin:0 auto;">'
+            f'<div class="psb-logo">'
+            f'<img src="data:image/png;base64,{logo_b64}" style="width:220px; max-width:100%;">'
             f'</div>',
             unsafe_allow_html=True,
         )
 
-    # ── Seção: Cliente ───────────────────────────────────────────
-    st.markdown('<hr class="perfor-divider">', unsafe_allow_html=True)
-    st.markdown(
-        "<p class='perfor-section-title'>👤 Cliente</p>",
-        unsafe_allow_html=True,
+    # ══ NAVEGAÇÃO — lista única, um só radio ═════════════════════
+    #
+    # SOLUÇÃO DEFINITIVA: um único st.radio com TODOS os itens.
+    # Os títulos "NAVEGAÇÃO" e "CONTEÚDO" são injectados via
+    # st.markdown entre grupos — puramente visuais, sem lógica.
+    #
+    # Mapeamento completo:
+    #   índice 0 → 'portfolio'
+    #   índice 1 → 'report'
+    #   índice 2 → 'config'
+    #   índice 3 → 'creatives'
+    # ─────────────────────────────────────────────────────────────
+
+    _PAGE_LABELS = ['Portfólio', 'Report', 'Configurações', '🎨  Criativos']
+    _PAGE_KEYS   = ['portfolio',  'report', 'config',        'creatives']
+
+    # CSS extra: separador visual entre grupos no radio único
+    st.markdown("""
+<style>
+/* Separador entre Configurações e Criativos no radio de navegação */
+[data-testid="stSidebar"] .stRadio > div > div:nth-child(4)::before {
+    content: '';
+    display: block;
+    height: 1px;
+    background: #1E1E1E;
+    margin: 4px 0;
+}
+[data-testid="stSidebar"] .stRadio > div > div:nth-child(4) {
+    margin-top: 2px;
+}
+/* Título "CONTEÚDO" injectado antes do 4º item via pseudo-element */
+[data-testid="stSidebar"] .stRadio > div > div:nth-child(4)::before {
+    content: 'CONTEÚDO';
+    display: block;
+    font-size: 0.575rem;
+    font-weight: 700;
+    letter-spacing: 1.9px;
+    text-transform: uppercase;
+    color: #2A2F3A;
+    padding: 12px 20px 4px;
+    height: auto;
+    background: none;
+    margin: 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+    st.markdown('<span class="psb-sec">Navegação</span>', unsafe_allow_html=True)
+
+    _page_idx = _PAGE_KEYS.index(_cur) if _cur in _PAGE_KEYS else 0
+
+    _page_sel = st.radio(
+        'menu',
+        _PAGE_LABELS,
+        index=_page_idx,
+        label_visibility='collapsed',
+        key='nav_radio',
     )
+    _sel_key = _PAGE_KEYS[_PAGE_LABELS.index(_page_sel)]
+    if _sel_key != _cur:
+        st.session_state.page = _sel_key
+        st.rerun()
+
+    # ── Expander de admin — só quando Criativos está activo ───────
+    if _cur == 'creatives':
+        with st.expander('⚙️ Admin: Criativos', expanded=False):
+            _img_loaded = st.session_state.get('images_loaded', False)
+            _lbl = '✅ Imagens Carregadas' if _img_loaded else '🖼️ Carregar Imagens'
+            if st.button(_lbl, key='btn_load_images', use_container_width=True):
+                # Só marca a flag — NÃO dá rerun para não resetar seletores
+                st.session_state.images_loaded = True
+            if not _img_loaded:
+                st.caption('Busca imagens via API do Meta (salvo por sessão)')
+
+    # ══ CLIENTE ═══════════════════════════════════════════════════
+    st.markdown('<div class="psb-hr"></div>', unsafe_allow_html=True)
+    st.markdown('<span class="psb-sec">Cliente</span>', unsafe_allow_html=True)
+
     selected_client = st.selectbox(
-        "cliente",
+        'cliente',
         list(CLIENTS.keys()),
         index=0,
-        label_visibility="collapsed",
+        label_visibility='collapsed',
+        key='sel_client',
     )
 
-    # ── Seção: Período ───────────────────────────────────────────
-    st.markdown('<hr class="perfor-divider">', unsafe_allow_html=True)
-    st.markdown(
-        "<p class='perfor-section-title'>📅 Período</p>",
-        unsafe_allow_html=True,
-    )
+    # ══ PERÍODO ═══════════════════════════════════════════════════
+    st.markdown('<div class="psb-hr"></div>', unsafe_allow_html=True)
+    st.markdown('<span class="psb-sec">Período</span>', unsafe_allow_html=True)
+
     period = st.radio(
-        "período",
-        ["Hoje", "Ontem", "Últimos 7 dias", "Últimos 30 dias", "Mês Atual", "Personalizado"],
+        'período',
+        ['Hoje', 'Ontem', 'Últimos 7 dias', 'Últimos 30 dias', 'Mês Atual', 'Personalizado'],
         index=3,
-        label_visibility="collapsed",
+        label_visibility='collapsed',
     )
 
     custom_start, custom_end = None, None
-    if period == "Personalizado":
-        custom_start = st.date_input("Data início", value=date.today() - timedelta(days=30))
-        custom_end   = st.date_input("Data fim",    value=date.today())
+    if period == 'Personalizado':
+        custom_start = st.date_input('Data início', value=date.today() - timedelta(days=30))
+        custom_end   = st.date_input('Data fim',    value=date.today())
 
-    # ── Seção: Ações ─────────────────────────────────────────────
-    st.markdown('<hr class="perfor-divider">', unsafe_allow_html=True)
-    st.markdown(
-        "<p class='perfor-section-title'>⚡ Ações</p>",
-        unsafe_allow_html=True,
-    )
-    refresh = st.button("🔄 Atualizar Dados", use_container_width=True)
+    # ══ SISTEMA ═══════════════════════════════════════════════════
+    st.markdown('<div class="psb-hr"></div>', unsafe_allow_html=True)
+    st.markdown('<span class="psb-sec">Sistema</span>', unsafe_allow_html=True)
+
+    refresh = st.button('⚡  Atualizar Dados', key='btn_refresh', use_container_width=True)
     if refresh:
         for _k in ('dados_globais', 'dados_custom', 'images_loaded'):
             st.session_state.pop(_k, None)
         st.rerun()
 
-    # ── Rodapé ───────────────────────────────────────────────────
-    st.markdown('<hr class="perfor-divider">', unsafe_allow_html=True)
+    # ── Rodapé ────────────────────────────────────────────────────
     st.markdown(
-        f"<p class='perfor-sidebar-footer'>"
-        f"Dados via Meta Marketing API + Google Sheets<br>"
-        f"Atualizado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-        f"</p>",
+        f'<div class="psb-footer">'
+        f'Meta API · Google Sheets · '
+        f'{datetime.now().strftime("%d/%m/%Y %H:%M")}'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
-
-# ══════════════════════════════════════════════════════════
-#  TRAVA DE MEMÓRIA — session_state
-#
-#  Regra absoluta:
-#    • load_data_from_google() roda APENAS se 'dados_globais'
-#      não existir no session_state (primeira abertura ou após
-#      clicar em "Atualizar Dados").
-#    • Qualquer outro evento (troca de cliente, período, aba)
-#      encontra os dados prontos e não chama API nenhuma.
-#    • Botão "Atualizar Dados" é o ÚNICO que pode limpar o state.
-# ══════════════════════════════════════════════════════════
-mi = get_month_intelligence()
 
 if 'dados_globais' not in st.session_state:
     with st.spinner("📡 Carregando dados... (só acontece uma vez por sessão)"):
@@ -1826,7 +2113,6 @@ time_params_tuple = tuple(sorted(time_params.items()))
 
 # Timestamp da última carga (para o rodapé da sidebar)
 _loaded_at = _all_data.get('_loaded_at', '—')
-st.sidebar.caption(f"🕐 Dados de {_loaded_at}")
 
 if not data:
     st.warning("⚠️ Nenhum dado encontrado para o período selecionado.")
@@ -1857,22 +2143,21 @@ mi = get_month_intelligence()
 
 
 # ─────────────────────────────────────────
-#  6 ABAS
+#  NAVEGAÇÃO — lê st.session_state.page
 # ─────────────────────────────────────────
-tab_portfolio, tab_overview, tab_creatives, tab_gps, tab_gads, tab_config = st.tabs([
-    "📊 Portfólio",
-    "🔍 Visão Geral",
-    "🎨 Criativos",
-    f"🏆 GPS — {selected_client}",
-    f"📢 Google Ads — {selected_client}",
-    "⚙️ Configurações",
-])
+_page = st.session_state.get('page', 'portfolio')
+
+_show_portfolio  = (_page == 'portfolio')
+_show_report     = (_page == 'report')
+_show_config     = (_page == 'config')
+_show_creatives  = (_page == 'creatives')
+
 
 
 # ══════════════════════════════════════════════════════════
 #  ABA 01 — PORTFÓLIO (8 clientes com pacing automático)
 # ══════════════════════════════════════════════════════════
-with tab_portfolio:
+if _show_portfolio:
 
     # ── Header minimalista ────────────────────────────
     pct_disp  = mi['progresso_mes'] * 100
@@ -1881,7 +2166,7 @@ with tab_portfolio:
     st.markdown(f"""
     <div style="
         display:flex; align-items:center; justify-content:space-between;
-        padding: 18px 0 6px; margin-bottom: 8px;
+        padding: 20px 0 6px; margin-top: 20px; margin-bottom: 8px;
         border-bottom: 1px solid {C['border']};
     ">
         <div>
@@ -2076,8 +2361,9 @@ with tab_portfolio:
             ]
             for i, (ic, lb, vl, co) in enumerate(kpi_data_port):
                 with kpi_cols[i]:
+                    _glow = "kpi-card-glow" if i == 0 else ""
                     st.markdown(f"""
-                    <div class="kpi-card">
+                    <div class="kpi-card {_glow}">
                         <div style="font-size:1.4rem; margin-bottom:4px">{ic}</div>
                         <div class="kpi-card-value" style="color:{co}">{vl}</div>
                         <div class="kpi-card-label">{lb}</div>
@@ -2368,7 +2654,7 @@ with tab_portfolio:
 # ══════════════════════════════════════════════════════════
 #  ABA 02 — VISÃO GERAL (Meta Ads do cliente selecionado)
 # ══════════════════════════════════════════════════════════
-with tab_overview:
+if _show_report:
 
     st.markdown(f"""
     <div class="hero-header">
@@ -2838,14 +3124,61 @@ with tab_overview:
 
 
 # ══════════════════════════════════════════════════════════
-with tab_creatives:
+if _show_creatives:
+
+    # ── CSS extra só para esta página ─────────────────────────────
     st.markdown(f"""
-    <div class="hero-header">
-        <h1>🎨 Análise de Criativos — {selected_client}</h1>
-        <p>{period_label} • Anúncios individuais com métricas e insights de IA</p>
+    <style>
+    /* Card de criativo — hover verde sutil */
+    .creative-card {{
+        background:{C['card']};
+        border:1px solid {C['border']};
+        border-radius:14px;
+        overflow:hidden;
+        transition:transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+    }}
+    .creative-card:hover {{
+        transform:translateY(-3px);
+        border-color:rgba(0,213,146,0.30);
+        box-shadow:0 8px 28px rgba(0,213,146,0.07);
+    }}
+    /* Métricas — label cinza, valor em destaque */
+    .cm-lbl {{ font-size:0.62rem; color:{C['dim']}; text-transform:uppercase;
+               letter-spacing:0.6px; margin-top:3px; }}
+    .cm-val {{ font-size:1rem; font-weight:700; line-height:1.1; }}
+    /* Insight IA */
+    .ci-title {{ font-size:0.62rem; font-weight:700; letter-spacing:0.8px;
+                 text-transform:uppercase; color:{C['dim']}; margin-bottom:4px; }}
+    .ci-text  {{ font-size:0.78rem; line-height:1.45; }}
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ── Header sofisticado ─────────────────────────────────────────
+    st.markdown(f"""
+    <div style="
+        background:{C['card']};
+        border:1px solid {C['border']};
+        border-radius:16px;
+        padding:22px 28px;
+        margin-bottom:24px;
+        display:flex;
+        align-items:center;
+        gap:18px;
+    ">
+        <div style="font-size:2.2rem;line-height:1;">🎨</div>
+        <div>
+            <div style="font-size:1.3rem;font-weight:700;color:{C['text']};line-height:1.25;">
+                Análise de Criativos
+                <span style="color:{MINT}"> — {selected_client}</span>
+            </div>
+            <div style="font-size:0.78rem;color:{C['dim']};margin-top:5px;">
+                {period_label} &nbsp;·&nbsp; Anúncios individuais com métricas e insights de IA
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
+    # ── Busca dados ────────────────────────────────────────────────
     with st.spinner("🎨 Buscando métricas de criativos..."):
         creatives_data = fetch_creative_insights(account, time_params_tuple)
 
@@ -2856,71 +3189,134 @@ with tab_creatives:
         images_loaded    = st.session_state.get('images_loaded', False)
         image_map        = {}
 
-        col_btn, col_info = st.columns([1, 3])
-        with col_btn:
-            if st.button("🖼️ Carregar Imagens" if not images_loaded else "✅ Imagens Carregadas", use_container_width=True):
-                st.session_state.images_loaded = True
-                images_loaded = True
-        with col_info:
-            if not images_loaded:
-                st.caption("💡 Clique para buscar as imagens dos criativos na API do Meta")
-            else:
-                st.caption("✅ Imagens carregadas do cache (5 min TTL)")
-
+        # Carrega imagens se o botão da sidebar foi acionado
         if images_loaded:
-            token     = _secret('META_ACCESS_TOKEN')
+            token = _secret('META_ACCESS_TOKEN')
             with st.spinner("🖼️ Buscando imagens..."):
                 image_map = fetch_creative_images(account, token)
 
         for c in active_creatives:
             c['thumb'] = image_map.get(c['ad_id'], '')
 
-        st.markdown(f"**{len(active_creatives)} criativos** • Top 30 por gasto")
+        # ── Filtros ────────────────────────────────────────────────
+        all_campaigns = sorted({
+            c.get('campaign_name', '')
+            for c in active_creatives
+            if c.get('campaign_name', '').strip()
+        })
 
-        sort_by = st.selectbox(
-            "Ordenar por:",
-            ["Maior Gasto", "Maior ROAS", "Mais Compras", "Menor CPA", "Maior CTR"],
-            index=0,
+        col_f1, col_f2 = st.columns([2, 1])
+        with col_f1:
+            selected_campaigns = st.multiselect(
+                'Filtrar por Campanha',
+                options=all_campaigns,
+                placeholder='Todas as campanhas',
+            )
+        with col_f2:
+            sort_by = st.selectbox(
+                'Ordenar por',
+                ['Maior Gasto', 'Maior ROAS', 'Mais Compras', 'Menor CPA', 'Maior CTR'],
+                index=0,
+            )
+
+        # Aplica filtro de campanha
+        filtered = (
+            [c for c in active_creatives if c.get('campaign_name') in selected_campaigns]
+            if selected_campaigns
+            else active_creatives
         )
-        if sort_by == "Maior ROAS":
-            active_creatives.sort(key=lambda x: x['roas'], reverse=True)
-        elif sort_by == "Mais Compras":
-            active_creatives.sort(key=lambda x: x['purchases'], reverse=True)
-        elif sort_by == "Menor CPA":
-            active_creatives.sort(key=lambda x: x['cpa'] if x['cpa'] > 0 else 999999)
-        elif sort_by == "Maior CTR":
-            active_creatives.sort(key=lambda x: x['ctr'], reverse=True)
 
+        # Ordenação
+        if sort_by == 'Maior ROAS':
+            filtered.sort(key=lambda x: x['roas'], reverse=True)
+        elif sort_by == 'Mais Compras':
+            filtered.sort(key=lambda x: x['purchases'], reverse=True)
+        elif sort_by == 'Menor CPA':
+            filtered.sort(key=lambda x: x['cpa'] if x['cpa'] > 0 else 999_999)
+        elif sort_by == 'Maior CTR':
+            filtered.sort(key=lambda x: x['ctr'], reverse=True)
+
+        camp_badge = (
+            f'&nbsp;·&nbsp;<span style="color:{MINT};font-weight:600;">'
+            f'{len(selected_campaigns)} campanha(s) selecionada(s)</span>'
+            if selected_campaigns else ''
+        )
+        st.markdown(
+            f'<div style="color:{C["dim"]};font-size:0.78rem;margin:8px 0 16px;">'
+            f'<b style="color:{C["text"]}">{len(filtered)}</b> criativos'
+            f'{camp_badge}&nbsp;·&nbsp;Top 30 por gasto</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Galeria de cards ───────────────────────────────────────
         cards_html = '<div class="creative-grid">'
-        for c in active_creatives:
+        for c in filtered:
+            # Thumbnail
             if c.get('thumb'):
                 thumb_html = (
                     f'<div class="creative-thumb-wrap">'
-                    f'<img class="creative-thumb" src="{c["thumb"]}" alt="{c["name"][:30]}" loading="lazy" '
-                    f'onerror="this.parentElement.innerHTML=\'<div class=creative-thumb-placeholder>🖼️<span>Falha ao carregar</span></div>\'">'
-                    f'</div>'
+                    f'<img class="creative-thumb" src="{c["thumb"]}"'
+                    f' alt="{c["name"][:30]}" loading="lazy"'
+                    f' onerror="this.parentElement.innerHTML='
+                    f"'<div class=creative-thumb-placeholder>🖼️"
+                    f"<span>Falha ao carregar</span></div>'\""
+                    f'></div>'
                 )
             else:
-                placeholder_text = 'Clique em Carregar Imagens' if not images_loaded else 'Sem imagem'
-                thumb_html = f'<div class="creative-thumb-placeholder">🖼️<span>{placeholder_text}</span></div>'
+                ph = ('Use a sidebar → Configurações de Mídia'
+                      if not images_loaded else 'Sem imagem disponível')
+                thumb_html = (f'<div class="creative-thumb-placeholder">'
+                              f'🖼️<span>{ph}</span></div>')
 
-            rc        = MINT if c['roas'] >= 4 else C['orange'] if c['roas'] >= 3.8 else C['red'] if c['roas'] > 0 else C['dim']
-            cpa_str   = f"R$ {c['cpa']:,.2f}" if c['cpa'] > 0 else "—"
-            roas_str  = f"{c['roas']:.2f}x"   if c['roas'] > 0 else "—"
+            # Cores por performance
+            rc    = (MINT       if c['roas'] >= 4
+                     else C['orange'] if c['roas'] >= 2
+                     else C['red']    if c['roas'] > 0
+                     else C['dim'])
+            ctr_c = (MINT       if c['ctr'] >= 2
+                     else C['orange'] if c['ctr'] >= 1
+                     else C['dim'])
+
+            # Pré-calcular strings FORA do f-string do card (evita {{}} duplo)
+            _spend_s = f"R$ {c['spend']:,.2f}"
+            _cpa_s   = f"R$ {c['cpa']:,.2f}"   if c['cpa']  > 0 else '—'
+            _roas_s  = f"{c['roas']:.2f}x"      if c['roas'] > 0 else '—'
+            _ctr_s   = f"{c['ctr']:.2f}%"       if c['ctr']  > 0 else '—'
+            _purch_s = str(c['purchases'])       if c['purchases'] > 0 else '—'
+
             ins_text, is_alert = generate_insight(c)
-            ins_class  = 'creative-insight-alert' if is_alert else 'creative-insight'
-            ins_color  = C['red'] if is_alert else MINT
+            ins_class = 'creative-insight-alert' if is_alert else 'creative-insight'
+            ins_color = C['red'] if is_alert else MINT
+
+            camp_tag = (
+                f'<div style="font-size:0.67rem;color:{C["dim"]};margin-bottom:7px;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                f'📢 {c.get("campaign_name","—")[:42]}</div>'
+            )
 
             cards_html += f"""
             <div class="creative-card">
                 {thumb_html}
                 <div class="creative-body">
+                    {camp_tag}
                     <div class="creative-name" title="{c['name']}">{c['name'][:45]}</div>
                     <div class="creative-metrics">
-                        <div class="creative-metric"><div class="cm-val" style="color:{MINT}">R$ {c['spend']:,.2f}</div><div class="cm-lbl">Gasto</div></div>
-                        <div class="creative-metric"><div class="cm-val" style="color:{C['text']}">{c['purchases'] if c['purchases'] > 0 else '—'}</div><div class="cm-lbl">Compras</div></div>
-                        <div class="creative-metric"><div class="cm-val" style="color:{rc}">{roas_str}</div><div class="cm-lbl">ROAS</div></div>
-                        <div class="creative-metric"><div class="cm-val" style="color:{C['text']}">{cpa_str}</div><div class="cm-lbl">CPA</div></div>
+                        <div class="creative-metric">
+                            <div class="cm-val" style="color:{MINT}">{_spend_s}</div>
+                            <div class="cm-lbl">Gasto</div>
+                        </div>
+                        <div class="creative-metric">
+                            <div class="cm-val" style="color:{C['text']}">{_purch_s}</div>
+                            <div class="cm-lbl">Compras</div>
+                        </div>
+                        <div class="creative-metric">
+                            <div class="cm-val" style="color:{rc}">{_roas_s}</div>
+                            <div class="cm-lbl">ROAS</div>
+                        </div>
+                        <div class="creative-metric">
+                            <div class="cm-val" style="color:{ctr_c}">{_ctr_s}</div>
+                            <div class="cm-lbl">CTR</div>
+                        </div>
                     </div>
                     <div class="{ins_class}">
                         <div class="ci-title">🤖 IA Insight</div>
@@ -2931,17 +3327,20 @@ with tab_creatives:
         cards_html += '</div>'
         st.markdown(cards_html, unsafe_allow_html=True)
 
-    st.markdown(f"""
-    <div style="text-align:center; padding:20px; color:{C['dim']}; font-size:0.75rem; margin-top:20px; border-top:1px solid {C['border']}">
-        Perfor • Criativos • {selected_client} • {datetime.now().strftime('%d/%m/%Y %H:%M')}
-    </div>
-    """, unsafe_allow_html=True)
-
-
+    # Rodapé da página
+    st.markdown(
+        f'<div style="text-align:center;padding:20px;color:{C["dim"]};'
+        f'font-size:0.72rem;margin-top:24px;border-top:1px solid {C["border"]};">'
+        f'Perfor &nbsp;·&nbsp; Criativos &nbsp;·&nbsp; {selected_client}'
+        f' &nbsp;·&nbsp; {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 # ══════════════════════════════════════════════════════════
 #  ABA 04 — GPS MENSAL
 # ══════════════════════════════════════════════════════════
-with tab_gps:
+if _show_report:  # GPS
+    st.divider()
     st.markdown(f"""
     <div class="hero-header">
         <h1>🏆 GPS Mensal — {selected_client}</h1>
@@ -2991,7 +3390,8 @@ with tab_gps:
 # ══════════════════════════════════════════════════════════
 #  ABA 05 — GOOGLE ADS
 # ══════════════════════════════════════════════════════════
-with tab_gads:
+if _show_report:  # Google Ads
+    st.divider()
     st.markdown(f"""
     <div class="hero-header">
         <h1>📢 Google Ads — {selected_client}</h1>
@@ -3115,7 +3515,7 @@ with tab_gads:
 # ══════════════════════════════════════════════════════════
 #  ABA 06 — CONFIGURAÇÕES
 # ══════════════════════════════════════════════════════════
-with tab_config:
+if _show_config:
     st.markdown(f"""
     <div class="hero-header">
         <h1>⚙️ Configurações do Dashboard</h1>
