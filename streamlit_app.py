@@ -1781,7 +1781,7 @@ section[data-testid="stSidebar"] > div:first-child,
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
 
 /* ── Logo ── */
-.psb-logo { padding: 20px 16px 30px; border-bottom: 1px solid #1E1E1E; }
+.psb-logo { padding: 5px 16px 30px; border-bottom: 1px solid #1E1E1E; }
 .psb-logo img { display: block; margin: 0 auto; width: 220px; max-width: 100%; }
 
 /* ── Selectbox: sem padding lateral — mesma largura do radio ── */
