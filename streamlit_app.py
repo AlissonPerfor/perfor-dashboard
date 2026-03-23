@@ -5,6 +5,52 @@ Dashboard interativo com filtros de período na sidebar.
 6 Abas: Portfólio | Visão Geral | Criativos | GPS | Google Ads | Config
 """
 
+import typing
+# Fix para compatibilidade do Python 3.14 com bibliotecas de rede (httpcore/httpx)
+# O Python 3.14 removeu atributos de typing.Union, causando erro em getattr/setattr na init do httpcore.
+import builtins
+
+_original_setattr = builtins.setattr
+
+def _safe_setattr(obj, name, value):
+    try:
+        _original_setattr(obj, name, value)
+    except AttributeError:
+        pass
+
+builtins.setattr = _safe_setattr
+
+try:
+    # Remove o mock falso antigo caso Streamlit tenha mantido em cache de hot-reload
+    import sys
+    if "httpcore" in sys.modules and not hasattr(sys.modules["httpcore"], "TimeoutException"):
+        for m in list(sys.modules.keys()):
+            if m.startswith("httpcore") or m.startswith("httpx") or m.startswith("supabase"):
+                del sys.modules[m]
+
+    # Apenas importa para registrar a lib no sys.modules de forma segura
+    import httpcore
+    import httpx
+    
+    # Patch httpx to support 'proxy' kwarg em versões antigas que exigiam 'proxies' (ex: httpx 0.24.1 c/ Supabase novo)
+    _orig_client_init = httpx.Client.__init__
+    def _patched_client_init(self, *args, **kwargs):
+        if 'proxy' in kwargs:
+            kwargs['proxies'] = kwargs.pop('proxy')
+        _orig_client_init(self, *args, **kwargs)
+    httpx.Client.__init__ = _patched_client_init
+
+    _orig_aclient_init = httpx.AsyncClient.__init__
+    def _patched_aclient_init(self, *args, **kwargs):
+        if 'proxy' in kwargs:
+            kwargs['proxies'] = kwargs.pop('proxy')
+        _orig_aclient_init(self, *args, **kwargs)
+    httpx.AsyncClient.__init__ = _patched_aclient_init
+
+finally:
+    # Restaura o setattr original para não afetar o resto da aplicação
+    builtins.setattr = _original_setattr
+
 import os
 import re
 import sys
@@ -57,59 +103,165 @@ def _secret(key: str, default: str = '') -> str:
 #   SHEET_ID_CARLOTA_COSTA=1pqr...
 #   SHEET_ID_W_ELEMENT=1stu...
 #   SHEET_ID_SHOPPING_LITORAL_SUL=1vwx...
-SHEET_ENV_KEYS = {
-    'Magu Handmade':        'SHEET_ID_MAGU_HANDMADE',
-    'Studio Zalmy':         'SHEET_ID_STUDIO_ZALMY',
-    'Bixo Ferpa':           'SHEET_ID_BIXO_FERPA',
-    'Ferpa Pets':           'SHEET_ID_FERPA_PETS',
-    'Ritmi Studio':         'SHEET_ID_RITMI_STUDIO',
-    'Carlota Costa':        'SHEET_ID_CARLOTA_COSTA',
-    'W.Element':            'SHEET_ID_W_ELEMENT',
-    'Shopping Litoral Sul': 'SHEET_ID_SHOPPING_LITORAL_SUL',
-}
+# Estrutura multi-inquilinato simulada: 
+# Em produção SaaS, TENANT_ID virá da sessão (st.session_state['tenant_id']) associado ao usuário
+# e este dicionário será populado a partir de um Banco de Dados relacional.
+TENANT_ID_ATUAL = 'PERFOR_MASTER'
+
+from supabase import create_client
+
+def init_supabase_connection():
+    try:
+        url = _secret("SUPABASE_URL")
+        key = _secret("SUPABASE_KEY")
+        if url and key:
+            return create_client(url, key)
+        return None
+    except Exception as e:
+        print(f"DEBUG ERROR: {e}")
+        return None
+
+# E logo abaixo dela, certifique-se que a variável global está recebendo o valor:
+supabase_db = init_supabase_connection()
+
+# Agora inicializamos o session_state['CLIENTS'] se ele não existir
+if 'CLIENTS' not in st.session_state:
+    _default_clients = {
+        'SHOPPING LITORAL SUL': {
+            'name': 'Shopping Litoral Sul',
+            'meta_id':  'act_10208187056689105',
+            'gads_id':  '8064277480',
+            'sheet_env_key': 'SHEET_ID_SHOPPING_LITORAL_SUL',
+            'whatsapp_group': 'https://chat.whatsapp.com/BhNLL4DqvidAJ9XA5poq7z',
+            'is_portfolio': True,
+            'gps_coords': {'rec': 6, 'meta_rec': 53, 'inv': 15, 'meta_inv': 63},
+            'override_meta_faturamento': None,
+        },
+        'MAGU HANDMADE': {
+            'name': 'Magu Handmade',
+            'meta_id':  'act_224189357791046',
+            'gads_id':  '2026596596',
+            'sheet_env_key': 'SHEET_ID_MAGU_HANDMADE',
+            'whatsapp_group': 'https://chat.whatsapp.com/JR1LlpTIj142nM681bYynm',
+            'is_portfolio': True,
+            'gps_coords': {'rec': 6, 'meta_rec': 63, 'inv': 14, 'meta_inv': 70},
+            'override_meta_faturamento': None,
+        },
+        'STUDIO ZALMY': {
+            'name': 'Studio Zalmy',
+            'meta_id':  'act_1389314755518351',
+            'gads_id':  '8247326862',
+            'sheet_env_key': 'SHEET_ID_STUDIO_ZALMY',
+            'whatsapp_group': '',
+            'is_portfolio': True,
+            'gps_coords': {'rec': 6, 'meta_rec': 67, 'inv': 14, 'meta_inv': 74},
+            'override_meta_faturamento': None,
+        },
+        'BIXO FERPA': {
+            'name': 'Bixo Ferpa',
+            'meta_id':  'act_538296215706105',
+            'gads_id':  '1031210384',
+            'sheet_env_key': 'SHEET_ID_BIXO_FERPA',
+            'whatsapp_group': 'https://chat.whatsapp.com/DeK4sCBYeI6IbGb7JPYS3j',
+            'is_portfolio': True,
+            'gps_coords': {'rec': 7, 'meta_rec': 68, 'inv': 16, 'meta_inv': 74},
+            'override_meta_faturamento': 135958.37,
+        },
+        'CARLOTA COSTA': {
+            'name': 'Carlota Costa',
+            'meta_id':  'act_723066385128063',
+            'gads_id':  '6961343244',
+            'sheet_env_key': 'SHEET_ID_CARLOTA_COSTA',
+            'whatsapp_group': 'https://chat.whatsapp.com/I1X9ztCZ9UGC44EhidtWpv',
+            'is_portfolio': True,
+            'gps_coords': {'rec': 7, 'meta_rec': 67, 'inv': 15, 'meta_inv': 74},
+            'override_meta_faturamento': None,
+        },
+        'RITMI STUDIO': {
+            'name': 'Ritmi Studio',
+            'meta_id':  'act_293708673518428',
+            'gads_id':  '7108808215',
+            'sheet_env_key': 'SHEET_ID_RITMI_STUDIO',
+            'whatsapp_group': 'https://chat.whatsapp.com/FGYveIWdEHMIdn8th5ePvx',
+            'is_portfolio': True,
+            'gps_coords': {'rec': 6, 'meta_rec': 66, 'inv': 14, 'meta_inv': 73},
+            'override_meta_faturamento': None,
+        },
+        'W.ELEMENT': {
+            'name': 'W.Element',
+            'meta_id':  'act_1699445494150703',
+            'gads_id':  '9556792643',
+            'sheet_env_key': 'SHEET_ID_W_ELEMENT',
+            'whatsapp_group': 'https://chat.whatsapp.com/ISOlq7ZSdKOJTtYkaXnx6G',
+            'is_portfolio': True,
+            'gps_coords': {'rec': 6, 'meta_rec': 63, 'inv': 14, 'meta_inv': 70},
+            'override_meta_faturamento': None,
+        },
+        'FERPA PETS': {
+            'name': 'Ferpa Pets',
+            'meta_id':  'act_972367007741930',
+            'gads_id':  '7224993203',
+            'sheet_env_key': 'SHEET_ID_FERPA_PETS',
+            'whatsapp_group': 'https://chat.whatsapp.com/I0iVCIkPVP94ZQJhACNjrw',
+            'is_portfolio': True,
+            'gps_coords': {'rec': 7, 'meta_rec': 67, 'inv': 16, 'meta_inv': 73},
+            'override_meta_faturamento': 63488.00,
+        },
+    }
+    
+    _db = init_supabase_connection()
+    _loaded_clients = {}
+    
+    if _db:
+        try:
+            res = _db.table('clients').select('*').execute()
+            if res.data and len(res.data) > 0:
+                for row in res.data:
+                    ck = row.get('client_key')
+                    if not ck:
+                        ck = row.get('name', '').upper().strip()
+                    _loaded_clients[ck] = row
+            else:
+                for ck, cv in _default_clients.items():
+                    cv_insert = cv.copy()
+                    cv_insert['client_key'] = ck
+                    try:
+                        _db.table('clients').insert(cv_insert).execute()
+                    except Exception:
+                        pass
+                _loaded_clients = _default_clients
+        except Exception:
+            _loaded_clients = _default_clients
+    else:
+        _loaded_clients = _default_clients
+        
+    st.session_state['CLIENTS'] = _loaded_clients
+
+CLIENTS = st.session_state['CLIENTS']
 
 def get_sheet_id(client_name):
     """
-    Resolve o SHEET_ID de um cliente a partir do .env.
-
-    Estratégia em 3 camadas (primeira que retornar valor vence):
-      1. Chave explícita do dicionário SHEET_ENV_KEYS
-         Ex: 'W.Element' → os.getenv('SHEET_ID_W_ELEMENT')
-      2. Derivação automática do nome:
-         client_name.upper().replace(' ', '_').replace('.', '_')
-         Ex: 'W.Element' → 'SHEET_ID_W_ELEMENT'  (mesmo resultado aqui)
-         Ex: 'Magu Handmade' → 'SHEET_ID_MAGU_HANDMADE'
-      3. Variantes com prefixo SHEET_ID_ + derivação sem o prefixo duplo,
-         e versões truncadas (para compatibilidade com chaves antigas).
-
-    Retorna o ID (string) ou '' se não encontrado.
+    Resolve o SHEET_ID de um cliente a partir da config SaaS.
     """
-    # ── Camada 1: chave explícita ──────────────────────────────────
-    env_key = SHEET_ENV_KEYS.get(client_name, '')
-    if env_key:
-        val = _secret(env_key)
-        if val:
-            return val
+    client_key = client_name.upper().strip()
+    
+    # Camada BD/Tenant Config
+    if client_key in CLIENTS:
+        env_key = CLIENTS[client_key].get('sheet_env_key', '')
+        if env_key:
+            val = _secret(env_key)
+            if val:
+                return val
 
-    # ── Camada 2: derivação automática ────────────────────────────
-    # upper().replace(' ', '_').replace('.', '_')
-    derived = 'SHEET_ID_' + client_name.upper().replace(' ', '_').replace('.', '_')
-    val = _secret(derived)
-    if val:
-        return val
-
-    # ── Camada 3: variantes extras ────────────────────────────────
-    # Tenta versões sem underscores duplos e truncadas
-    name_slug = client_name.upper().replace(' ', '_').replace('.', '_')
-    # Remove underscores duplos que podem ocorrer em nomes como "W._Element"
+    # Camada fallback/derivação
+    name_slug = client_key.replace(' ', '_').replace('.', '_')
     while '__' in name_slug:
         name_slug = name_slug.replace('__', '_')
     name_slug = name_slug.strip('_')
+    
     variants = [
         f'SHEET_ID_{name_slug}',
-        # Primeira palavra apenas (ex: SHEET_ID_MAGU para "Magu Handmade")
         f'SHEET_ID_{name_slug.split("_")[0]}',
-        # Sem o último token (ex: SHEET_ID_STUDIO para "Studio Zalmy")
         f'SHEET_ID_{"_".join(name_slug.split("_")[:-1])}',
     ]
     for v in variants:
@@ -117,115 +269,31 @@ def get_sheet_id(client_name):
         if val:
             return val
 
-    return ''   # não encontrado em nenhuma camada
+    return ''
 
-
-CLIENTS = {
-    'Shopping Litoral Sul': {
-        'meta_id':  'act_10208187056689105',
-        'gads_id':  '8064277480',
-        'sheet_id': get_sheet_id('Shopping Litoral Sul'),
-        'whatsapp_group': 'https://chat.whatsapp.com/BhNLL4DqvidAJ9XA5poq7z',
-    },
-    'Magu Handmade': {
-        'meta_id':  'act_224189357791046',
-        'gads_id':  '2026596596',
-        'sheet_id': get_sheet_id('Magu Handmade'),
-        'whatsapp_group': 'https://chat.whatsapp.com/JR1LlpTIj142nM681bYynm',
-    },
-    'Studio Zalmy': {
-        'meta_id':  'act_1389314755518351',
-        'gads_id':  '8247326862',
-        'sheet_id': get_sheet_id('Studio Zalmy'),
-        'whatsapp_group': '',
-    },
-    'Bixo Ferpa': {
-        'meta_id':  'act_538296215706105',
-        'gads_id':  '1031210384',
-        'sheet_id': get_sheet_id('Bixo Ferpa'),
-        'whatsapp_group': 'https://chat.whatsapp.com/DeK4sCBYeI6IbGb7JPYS3j',
-    },
-    'Carlota Costa': {
-        'meta_id':  'act_723066385128063',
-        'gads_id':  '6961343244',
-        'sheet_id': get_sheet_id('Carlota Costa'),
-        'whatsapp_group': 'https://chat.whatsapp.com/I1X9ztCZ9UGC44EhidtWpv',
-    },
-    'Ritmi Studio': {
-        'meta_id':  'act_293708673518428',
-        'gads_id':  '7108808215',
-        'sheet_id': get_sheet_id('Ritmi Studio'),
-        'whatsapp_group': 'https://chat.whatsapp.com/FGYveIWdEHMIdn8th5ePvx',
-    },
-    'W.Element': {
-        'meta_id':  'act_1699445494150703',
-        'gads_id':  '9556792643',
-        'sheet_id': get_sheet_id('W.Element'),
-        'whatsapp_group': 'https://chat.whatsapp.com/ISOlq7ZSdKOJTtYkaXnx6G',
-    },
-    'Ferpa Pets': {
-        'meta_id':  'act_972367007741930',
-        'gads_id':  '7224993203',
-        'sheet_id': get_sheet_id('Ferpa Pets'),
-        'whatsapp_group': 'https://chat.whatsapp.com/I0iVCIkPVP94ZQJhACNjrw',
-    },
-}
+for ck, cfg in CLIENTS.items():
+    cfg['sheet_id'] = get_sheet_id(ck)
 
 # Clientes filtrados para o Portfólio (Aba 01)
-PORTFOLIO_CLIENTS = [
-    'Magu Handmade',
-    'Studio Zalmy',
-    'Bixo Ferpa',
-    'Ferpa Pets',
-    'Ritmi Studio',
-    'Carlota Costa',
-    'W.Element',
-    'Shopping Litoral Sul',
-]
+PORTFOLIO_CLIENTS = [cfg['name'] for cfg in CLIENTS.values() if cfg.get('is_portfolio')]
 
 DASH_SHEET_NAME   = 'dash'
 GPS_SHEET_TAB     = '🏆 GPS / 26'
 ANALISE_SHEET_TAB = '🔍 Análise Perfor'
 
-# ── Coluna do mês: Jan=B(1), Fev=C(2), Mar=D(3) … Dez=M(12) ──
-# Coluna A (idx 0) é sempre o rótulo da linha.
 def get_month_col_idx():
-    """Retorna índice 0-based da coluna do mês atual (Jan→1=B, Mar→3=D)."""
-    return datetime.now().month   # Jan=1, Fev=2, Mar=3 …
+    return datetime.now().month
 
-GPS_COL_D = get_month_col_idx()   # atualizado dinamicamente a cada boot
-
-# ── Coordenadas de linha por cliente (1-based, igual à planilha) ──
-# Rec=Receita Realizada, MetaRec=Meta Receita,
-# Inv=Investimento Real,  MetaInv=Meta Investimento
-GPS_CLIENT_ROWS = {
-    'Shopping Litoral Sul': {'rec': 6,  'meta_rec': 53, 'inv': 15, 'meta_inv': 63},
-    'Magu Handmade':        {'rec': 6,  'meta_rec': 63, 'inv': 14, 'meta_inv': 70},
-    'Studio Zalmy':         {'rec': 6,  'meta_rec': 67, 'inv': 14, 'meta_inv': 74},
-    'Bixo Ferpa':           {'rec': 7,  'meta_rec': 68, 'inv': 16, 'meta_inv': 74},
-    'Carlota Costa':        {'rec': 7,  'meta_rec': 67, 'inv': 15, 'meta_inv': 74},
-    'Ritmi Studio':         {'rec': 6,  'meta_rec': 66, 'inv': 14, 'meta_inv': 73},
-    'W.Element':            {'rec': 6,  'meta_rec': 63, 'inv': 14, 'meta_inv': 70},
-    'Ferpa Pets':           {'rec': 7,  'meta_rec': 67, 'inv': 16, 'meta_inv': 73},
-}
-
-# ── Metas de Faturamento Hardcoded (Overrides para Março) ──
-METAS_FATURAMENTO_MARCO = {
-    'Bixo Ferpa': 135958.37,
-    'Ferpa Pets': 63488.00,
-}
+GPS_COL_D = get_month_col_idx()
 
 def get_gps_coords(client_name):
-    """
-    Retorna (col_idx, row_rec, row_meta_rec, row_inv, row_meta_inv)
-    todos 0-based para uso direto em get_all_values().
-
-    col_idx : coluna do mês atual (Jan=1=B, Mar=3=D …)
-    row_*   : linha da planilha convertida para índice 0-based
-    """
-    coords = GPS_CLIENT_ROWS.get(client_name)
+    client_key = client_name.upper().strip()
+    client_cfg = CLIENTS.get(client_key, {})
+    coords = client_cfg.get('gps_coords')
+    
     if coords is None:
         return GPS_COL_D, 5, 52, 13, 62   # fallback genérico
+    
     col = GPS_COL_D
     return (
         col,
@@ -786,10 +854,114 @@ footer    {{ visibility:hidden; }}
 """, unsafe_allow_html=True)
 
 
+# ─────────────────────────────────────────
+#  SISTEMA DE LOGIN E MULTI-INQUILINATO
+# ─────────────────────────────────────────
+# O dicionário estático foi desativado em favor da tabela "users" no Supabase.
+# USERS = { ... }
+
+# ── NOVO BLOCO DE LOGIN ROBUSTO ──
+def check_login_supabase(username, password):
+    try:
+        # Busca o usuário exato no banco
+        # IMPORTANTE: Verifique se sua variável de conexão se chama 'supabase_db'
+        query = supabase_db.table('users').select("*").eq('username', username).execute()
+        
+        if query.data:
+            user_data = query.data[0]
+            # Verifica se a senha bate
+            if user_data['password'] == password:
+                return user_data
+        return None
+    except Exception as e:
+        # Isso vai imprimir o erro real no terminal preto do VS Code!
+        print(f"DEBUG SUPABASE ERROR: {e}")
+        return "error"
+
+def show_login_page():
+    st.markdown('''
+        <style>
+        .login-box {
+            background: #141414;
+            border: 1px solid #1E1E1E;
+            border-radius: 12px;
+            padding: 40px;
+            max-width: 400px;
+            margin: 10vh auto;
+            text-align: center;
+            box-shadow: 0 8px 32px rgba(0,213,146,0.1);
+        }
+        .login-title {
+            color: #EFEFEF;
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 25px;
+        }
+        .login-box .stTextInput > div > div > input {
+            background-color: #0E0E0E !important;
+            color: #EFEFEF !important;
+            border: 1px solid #2A2A2A !important;
+            border-radius: 8px !important;
+        }
+        .login-box .stButton > button {
+            background: rgba(0,213,146,0.07) !important;
+            border: 1px solid rgba(0,213,146,0.28) !important;
+            border-radius: 8px !important;
+            color: #00D592 !important;
+            font-weight: 700 !important;
+            padding: 8px 16px !important;
+            margin-top: 15px;
+        }
+        .login-box .stButton > button:hover {
+            background: rgba(0,213,146,0.13) !important;
+            border-color: rgba(0,213,146,0.5) !important;
+            box-shadow: 0 0 16px rgba(0,213,146,0.12) !important;
+        }
+        /* Ocultar elementos desnecessários da barra e Header original na tela de login */
+        header {visibility: hidden;}
+        [data-testid="stSidebar"] {display: none;}
+        </style>
+    ''', unsafe_allow_html=True)
+
+    _, col, _ = st.columns([1, 1.2, 1])
+    with col:
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        if logo_b64:
+            st.markdown(f'<img src="data:image/png;base64,{logo_b64}" style="width:160px; margin-bottom: 20px;">', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">Acesso Restrito</div>', unsafe_allow_html=True)
+        
+        username = st.text_input("Usuário")
+        password = st.text_input("Senha", type="password")
+        
+        if st.button("Entrar", use_container_width=True):
+            result = check_login_supabase(username, password)
+            
+            if result == "error":
+                st.error("❌ Erro técnico de conexão. Olhe o terminal do VS Code.")
+            elif result:
+                st.session_state['logged_in'] = True
+                st.session_state['username'] = result['username']
+                st.session_state['role'] = result.get('role', 'analista')
+                
+                clients_data = result.get('allowed_clients', [])
+                if isinstance(clients_data, str) and clients_data.lower() == 'all':
+                    clients_data = 'all'
+                elif isinstance(clients_data, list) and len(clients_data) == 1 and clients_data[0].lower() == 'all':
+                    clients_data = 'all'
+                    
+                st.session_state['allowed_clients'] = clients_data
+                st.rerun()
+            else:
+                st.error("👤 Usuário ou senha incorretos.")
+                
+        st.markdown('</div>', unsafe_allow_html=True)
+
+if not st.session_state.get('logged_in', False):
+    show_login_page()
+    st.stop()
 
 
 # ─────────────────────────────────────────
-#  INTELIGÊNCIA DE TEMPO# ─────────────────────────────────────────
 #  INTELIGÊNCIA DE TEMPO (dinâmica)
 # ─────────────────────────────────────────
 def get_month_intelligence():
@@ -841,15 +1013,129 @@ def delta_html(value: float, suffix: str = '%', invert: bool = False) -> str:
 
 
 # ─────────────────────────────────────────
-#  API META
+#  GESTÃO SAAS (show_admin_page)
 # ─────────────────────────────────────────
-def get_account_for_client(meta_id):
-    token = _secret("META_ACCESS_TOKEN")
-    if not token:
-        st.error("❌ Configure META_ACCESS_TOKEN no .env ou em st.secrets")
-        st.stop()
-    FacebookAdsApi.init(access_token=token)
-    return AdAccount(meta_id)
+def show_admin_page():
+    st.markdown('<h1 style="color:#00D592; margin-bottom: 5px;">⚙️ Gestão SaaS</h1>', unsafe_allow_html=True)
+    st.markdown('<p style="color:#A0AEC0; margin-bottom: 25px;">Cadastre novos clientes e gerencie as configurações base do sistema para habilitar o painel multi-inquilinato.</p>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown('<div style="background:#1A1A1A; border:1px solid #2A2A2A; border-radius:12px; padding:24px; margin-bottom: 24px;">', unsafe_allow_html=True)
+        st.markdown('<h3 style="color:#EFEFEF; margin-top:0; margin-bottom:15px; font-size: 1.2rem;">Cadastrar Novo Cliente</h3>', unsafe_allow_html=True)
+        
+        with st.form("form_novo_cliente", clear_on_submit=True):
+            nome = st.text_input("Nome do Cliente (ex: MAGU HANDMADE)")
+            
+            c1, c2 = st.columns(2)
+            meta_id = c1.text_input("Meta Ads ID (ex: act_123456)")
+            gads_id = c2.text_input("Google Ads ID (opcional)")
+            
+            sheet_key = st.text_input("Chave da Planilha (ex: SHEET_ID_MAGU)")
+            
+            st.markdown('<p style="color:#8E97A8; font-size: 0.85rem; margin-top: 15px; margin-bottom: 5px;">Coordenadas GPS (Linhas default)</p>', unsafe_allow_html=True)
+            g1, g2, g3, g4 = st.columns(4)
+            gps_r = g1.number_input("Receita (Re)", value=6, min_value=1)
+            gps_mr = g2.number_input("Meta Re (mr)", value=53, min_value=1)
+            gps_i = g3.number_input("Inv (In)", value=15, min_value=1)
+            gps_mi = g4.number_input("Meta In (mi)", value=63, min_value=1)
+            
+            submit = st.form_submit_button("Salvar Cliente", use_container_width=True)
+            
+            if submit:
+                if not nome or not meta_id or not sheet_key:
+                    st.error("❌ Os campos Nome, Meta ID e Chave da Planilha são obrigatórios.")
+                else:
+                    chave = nome.upper().strip()
+                    new_client = {
+                        'client_key': chave,
+                        'name': nome,
+                        'meta_id': meta_id,
+                        'gads_id': gads_id,
+                        'sheet_env_key': sheet_key,
+                        'whatsapp_group': '',
+                        'is_portfolio': True,
+                        'gps_coords': {'rec': int(gps_r), 'meta_rec': int(gps_mr), 'inv': int(gps_i), 'meta_inv': int(gps_mi)},
+                        'override_meta_faturamento': None
+                    }
+                    
+                    st.session_state['CLIENTS'][chave] = new_client
+                    
+                    _db = init_supabase_connection()
+                    if _db:
+                        try:
+                            _db.table('clients').insert(new_client).execute()
+                        except Exception as e:
+                            st.warning(f"Aviso: Cliente salvo localmente, mas houve um erro ao sincronizar com o banco: {e}")
+                    
+                    st.success(f"✅ Cliente **{nome}** cadastrado e adicionado à sessão com sucesso!")
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown('<div style="background:#1A1A1A; border:1px solid #2A2A2A; border-radius:12px; padding:24px;">', unsafe_allow_html=True)
+        st.markdown('<h3 style="color:#EFEFEF; margin-top:0; margin-bottom:15px; font-size: 1.2rem;">Novo Acesso Analista</h3>', unsafe_allow_html=True)
+        
+        with st.form("form_novo_analista", clear_on_submit=True):
+            user_a = st.text_input("Username (ex: analista_pedro)")
+            pass_a = st.text_input("Senha", type="password")
+            
+            # Opções de clientes atuais (nomes formatados)
+            opcoes_clientes = [cfg['name'] for ck, cfg in st.session_state['CLIENTS'].items()]
+            clientes_permitidos = st.multiselect("Clientes Permitidos", options=opcoes_clientes, default=[])
+            
+            is_master = st.checkbox("É Administrador (Acesso Total)?")
+            
+            submit_user = st.form_submit_button("Criar Usuário Analista", use_container_width=True)
+            
+            if submit_user:
+                if not user_a or not pass_a:
+                    st.error("❌ Usuário e Senha são obrigatórios.")
+                else:
+                    _db = init_supabase_connection()
+                    if not _db:
+                        st.error("❌ Sem conexão com o Supabase.")
+                    else:
+                        role_val = 'master' if is_master else 'analista'
+                        allowed_val = ['all'] if is_master else clientes_permitidos
+                        
+                        try:
+                            _db.table('users').insert({
+                                'username': user_a,
+                                'password': pass_a,
+                                'role': role_val,
+                                'allowed_clients': allowed_val
+                            }).execute()
+                            st.success(f"✅ Usuário **{user_a}** criado com sucesso!")
+                        except Exception as e:
+                            st.error(f"Erro ao inserir usuário: {e}")
+                            
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+    with col2:
+        st.markdown('<div style="background:#1A1A1A; border:1px solid #2A2A2A; border-radius:12px; padding:24px;">', unsafe_allow_html=True)
+        st.markdown(f'<h3 style="color:#EFEFEF; margin-top:0; margin-bottom:15px; font-size: 1.2rem;">Clientes Ativos ({len(CLIENTS)})</h3>', unsafe_allow_html=True)
+        
+        # Mostra os clientes atualmente ativos no _all_data do state ou no recém-atualizado dict
+        import pandas as pd
+        dados_tabela = []
+        for ck, cv in st.session_state['CLIENTS'].items():
+            dados_tabela.append({
+                "Nome": cv['name'],
+                "Meta ID": cv['meta_id'],
+                "Google ID": cv.get('gads_id', ''),
+                "Sheet Key": cv.get('sheet_env_key', '')
+            })
+            
+        df = pd.DataFrame(dados_tabela)
+        # Customização leve do estilo do dataframe no tema escuro
+        st.dataframe(df, hide_index=True, use_container_width=True, height=450)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────
+#  API META
 
 
 def _fetch_one_client_period(meta_id, preset):
@@ -937,7 +1223,8 @@ def load_data_from_google():
     result = {'meta': {}, 'gps': {}, 'gps_raw': {}, 'gads': {}, '_loaded_at': datetime.now().strftime('%d/%m %H:%M')}
 
     # ── Meta Ads: 8 clientes × 5 presets ──────────────────────────
-    for client_name, cfg in CLIENTS.items():
+    for client_key, cfg in CLIENTS.items():
+        client_name = cfg['name']
         result['meta'][client_name] = {}
         for preset in _PRESETS:
             result['meta'][client_name][preset] = _fetch_one_client_period(
@@ -947,7 +1234,7 @@ def load_data_from_google():
     # ── Google Sheets — GPS cells ─────────────────────────────────
     # sleep(0.5) entre clientes evita 'Connection aborted' por
     # velocidade excessiva de requisições ao Google Sheets API.
-    _gps_clients = list(CLIENTS.keys())
+    _gps_clients = [cfg['name'] for cfg in CLIENTS.values()]
     for _gi, client_name in enumerate(_gps_clients):
         try:
             cells, err = fetch_gps_cells(client_name)
@@ -993,7 +1280,7 @@ def filter_client_data(all_data, client_name, period, custom_start=None, custom_
         if 'dados_custom' not in st.session_state:
             st.session_state['dados_custom'] = {}
         if _key not in st.session_state['dados_custom']:
-            meta_id = CLIENTS[client_name]['meta_id']
+            meta_id = CLIENTS[client_name.upper().strip()]['meta_id']
             st.session_state['dados_custom'][_key] = _fetch_one_client_period(
                 meta_id, f"custom_{custom_start}_{custom_end}"
             )
@@ -1144,9 +1431,18 @@ def build_time_params(choice, custom_start=None, custom_end=None):
 
 
 # ─────────────────────────────────────────
+#  SHEET_ENV_KEYS — derivado de CLIENTS
+#  Mantido para compatibilidade com fetch_gps_data e aba Config
+# ─────────────────────────────────────────
+SHEET_ENV_KEYS = {
+    cfg['name']: cfg['sheet_env_key']
+    for cfg in CLIENTS.values()
+    if cfg.get('sheet_env_key')
+}
+
+# ─────────────────────────────────────────
 #  GOOGLE SHEETS
 # ─────────────────────────────────────────
-@st.cache_resource(show_spinner=False)
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
     """
@@ -1519,10 +1815,14 @@ def fetch_gps_cells(client_name):
     inv_total      = _parse_safe(raw_inv_total_r)
     inv_meta       = _parse_safe(raw_inv_meta_r)
 
-    # ── Override de Metas de Faturamento para Março ──
-    if datetime.now().month == 3:
-        if client_name in METAS_FATURAMENTO_MARCO:
-            fat_meta = METAS_FATURAMENTO_MARCO[client_name]
+    # ── Override de Metas de Faturamento (março/2026 — SaaS ready) ──
+    # Aplica override_meta_faturamento somente no mês configurado (março = 3).
+    # Para outros meses, a meta é lida normalmente da planilha.
+    client_key = client_name.upper().strip()
+    if client_key in CLIENTS:
+        override_meta = CLIENTS[client_key].get('override_meta_faturamento')
+        if override_meta is not None and datetime.now().month == 3:
+            fat_meta = override_meta
 
 
     atingimento    = (fat_real / fat_meta * 100) if fat_meta > 0 else 0.0
@@ -1781,7 +2081,7 @@ section[data-testid="stSidebar"] > div:first-child,
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
 
 /* ── Logo ── */
-.psb-logo { padding: 5px 16px 30px; border-bottom: 1px solid #1E1E1E; }
+.psb-logo { padding: 1px 16px 20px; border-bottom: 1px solid #1E1E1E; }
 .psb-logo img { display: block; margin: 0 auto; width: 220px; max-width: 100%; }
 
 /* ── Selectbox: sem padding lateral — mesma largura do radio ── */
@@ -1794,8 +2094,8 @@ section[data-testid="stSidebar"] > div:first-child,
     font-weight: 700;
     letter-spacing: 1.9px;
     text-transform: uppercase;
-    color: #2A2F3A;
-    padding: 15px 20px 4px;
+    color: #A7F3D0;
+    padding: 25px 20px 4px;
     margin: 0;
 }
 
@@ -1987,6 +2287,10 @@ section[data-testid="stSidebar"] > div:first-child,
     _PAGE_LABELS = ['Portfólio', 'Report', 'Configurações', '🎨  Criativos']
     _PAGE_KEYS   = ['portfolio',  'report', 'config',        'creatives']
 
+    if st.session_state.get('role') == 'master':
+        _PAGE_LABELS.append('⚙️ Gestão SaaS')
+        _PAGE_KEYS.append('admin_saas')
+
     # CSS extra: separador visual entre grupos no radio único
     st.markdown("""
 <style>
@@ -2045,33 +2349,54 @@ section[data-testid="stSidebar"] > div:first-child,
             if not _img_loaded:
                 st.caption('Busca imagens via API do Meta (salvo por sessão)')
 
-    # ══ CLIENTE ═══════════════════════════════════════════════════
-    st.markdown('<div class="psb-hr"></div>', unsafe_allow_html=True)
-    st.markdown('<span class="psb-sec">Cliente</span>', unsafe_allow_html=True)
+    # Se estiver na página de Gestão SaaS, esconde o seletor de cliente e período na sidebar
+    if _cur == 'admin_saas':
+        selected_client = None
+        period = 'Mês Atual'
+        custom_start, custom_end = None, None
+    else:
 
-    selected_client = st.selectbox(
-        'cliente',
-        list(CLIENTS.keys()),
-        index=0,
-        label_visibility='collapsed',
-        key='sel_client',
-    )
+        # ══ CLIENTES ═══════════════════════════════════════════════════
+        st.markdown('<div class="psb-hr"></div>', unsafe_allow_html=True)
+        st.markdown('<span class="psb-sec">Clientes</span>', unsafe_allow_html=True)
 
-    # ══ PERÍODO ═══════════════════════════════════════════════════
-    st.markdown('<div class="psb-hr"></div>', unsafe_allow_html=True)
-    st.markdown('<span class="psb-sec">Período</span>', unsafe_allow_html=True)
+        # Filtro Multi-Inquilinato
+        _allowed = st.session_state.get('allowed_clients', [])
+        if st.session_state.get('role') == 'master' or _allowed == 'all':
+            allowed_clients_names = [cfg['name'] for cfg in CLIENTS.values()]
+        else:
+            # Mostra somente os clientes que possuem autorização ('ck' é a chave maiúscula no dict)
+            allowed_clients_names = [
+                cfg['name'] for ck, cfg in CLIENTS.items() 
+                if ck in _allowed or cfg['name'] in _allowed
+            ]
 
-    period = st.radio(
-        'período',
-        ['Hoje', 'Ontem', 'Últimos 7 dias', 'Últimos 30 dias', 'Mês Atual', 'Personalizado'],
-        index=3,
-        label_visibility='collapsed',
-    )
+        if not allowed_clients_names:
+            allowed_clients_names = ["Nenhum cliente disponível"]
 
-    custom_start, custom_end = None, None
-    if period == 'Personalizado':
-        custom_start = st.date_input('Data início', value=date.today() - timedelta(days=30))
-        custom_end   = st.date_input('Data fim',    value=date.today())
+        selected_client = st.selectbox(
+            'clientes',
+            allowed_clients_names,
+            index=0,
+            label_visibility='collapsed',
+            key='sel_client',
+        )
+
+        # ══ PERÍODO ═══════════════════════════════════════════════════
+        st.markdown('<div class="psb-hr"></div>', unsafe_allow_html=True)
+        st.markdown('<span class="psb-sec">Período</span>', unsafe_allow_html=True)
+
+        period = st.radio(
+            'período',
+            ['Hoje', 'Ontem', 'Últimos 7 dias', 'Últimos 30 dias', 'Mês Atual', 'Personalizado'],
+            index=3,
+            label_visibility='collapsed',
+        )
+
+        custom_start, custom_end = None, None
+        if period == 'Personalizado':
+            custom_start = st.date_input('Data início', value=date.today() - timedelta(days=30))
+            custom_end   = st.date_input('Data fim',    value=date.today())
 
     # ══ SISTEMA ═══════════════════════════════════════════════════
     st.markdown('<div class="psb-hr"></div>', unsafe_allow_html=True)
@@ -2092,6 +2417,52 @@ section[data-testid="stSidebar"] > div:first-child,
         unsafe_allow_html=True,
     )
 
+# ── BLOCO DE SEGURANÇA: FUNÇÕES ESSENCIAIS REINJECTADAS ──
+
+def get_account_for_client(meta_id):
+    token = _secret("META_ACCESS_TOKEN")
+    if not token:
+        st.error("❌ Configure META_ACCESS_TOKEN")
+        st.stop()
+    from facebook_business.api import FacebookAdsApi
+    from facebook_business.adobjects.adaccount import AdAccount
+    FacebookAdsApi.init(access_token=token)
+    return AdAccount(meta_id)
+
+def build_time_params(choice, custom_start=None, custom_end=None):
+    today = date.today()
+    if choice == "Hoje": return {'time_range': {'since': today.isoformat(), 'until': today.isoformat()}}
+    elif choice == "Ontem": return {'time_range': {'since': (today - timedelta(days=1)).isoformat(), 'until': (today - timedelta(days=1)).isoformat()}}
+    elif choice == "Últimos 7 dias": return {'date_preset': 'last_7d'}
+    elif choice == "Últimos 30 dias": return {'date_preset': 'last_30d'}
+    elif choice == "Mês Atual": return {'date_preset': 'this_month'}
+    elif choice == "Personalizado" and custom_start and custom_end:
+        return {'time_range': {'since': custom_start.isoformat(), 'until': custom_end.isoformat()}}
+    return {'date_preset': 'last_30d'}
+
+def filter_client_data(all_data, client_name, period, custom_start=None, custom_end=None):
+    _choice_map = {'Hoje': 'today', 'Ontem': 'yesterday', 'Últimos 7 dias': 'last_7d', 'Últimos 30 dias': 'last_30d', 'Mês Atual': 'this_month'}
+    if period == 'Personalizado' and custom_start and custom_end:
+        _key = f"{client_name}|{custom_start}|{custom_end}"
+        if 'dados_custom' not in st.session_state: st.session_state['dados_custom'] = {}
+        if _key not in st.session_state['dados_custom']:
+            meta_id = CLIENTS[client_name.upper().strip()]['meta_id']
+            st.session_state['dados_custom'][_key] = _fetch_one_client_period(meta_id, f"custom_{custom_start}_{custom_end}")
+        return st.session_state['dados_custom'].get(_key, [])
+    preset = _choice_map.get(period, 'last_30d')
+    return all_data['meta'].get(client_name, {}).get(preset, [])
+
+def load_data_from_google():
+    result = {'meta': {}, 'gps': {}, 'gps_raw': {}, 'gads': {}, '_loaded_at': datetime.now().strftime('%d/%m %H:%M')}
+    for client_key, cfg in CLIENTS.items():
+        client_name = cfg['name']
+        result['meta'][client_name] = {}
+        for preset in ['today', 'yesterday', 'last_7d', 'last_30d', 'this_month']:
+            result['meta'][client_name][preset] = _fetch_one_client_period(cfg['meta_id'], preset)
+        result['gps'][client_name] = fetch_gps_cells(client_name)
+        result['gps_raw'][client_name] = fetch_gps_data(client_name)
+        result['gads'][client_name] = fetch_gads_data(client_name)
+    return result
 
 if 'dados_globais' not in st.session_state:
     with st.spinner("📡 Carregando dados... (só acontece uma vez por sessão)"):
@@ -2101,11 +2472,15 @@ if 'dados_globais' not in st.session_state:
 _all_data = st.session_state['dados_globais']
 
 # Filtra cliente + período — dict lookup, zero I/O
-data = filter_client_data(_all_data, selected_client, period, custom_start, custom_end)
+if selected_client:
+    data = filter_client_data(_all_data, selected_client, period, custom_start, custom_end)
 
-# account necessário apenas para aba de criativos
-client_meta_id = CLIENTS[selected_client]['meta_id']
-account        = get_account_for_client(client_meta_id)
+    # account necessário apenas para aba de criativos
+    client_meta_id = CLIENTS[selected_client.upper().strip()]['meta_id']
+    account        = get_account_for_client(client_meta_id)
+else:
+    data = []
+    account = None
 
 # time_params_tuple necessário para fetch_creative_insights
 time_params       = build_time_params(period, custom_start, custom_end)
@@ -2114,11 +2489,10 @@ time_params_tuple = tuple(sorted(time_params.items()))
 # Timestamp da última carga (para o rodapé da sidebar)
 _loaded_at = _all_data.get('_loaded_at', '—')
 
-if not data:
-    st.warning("⚠️ Nenhum dado encontrado para o período selecionado.")
-    st.stop()
-
-if not data:
+# ── Guarda de dados: só bloqueia nas abas que dependem de Meta Ads ──
+# Abas 'config', 'creatives' e 'admin_saas' não exigem dados de campanhas.
+_PAGES_SEM_ADS = {'config', 'creatives', 'admin_saas'}
+if not data and _cur not in _PAGES_SEM_ADS:
     st.warning("⚠️ Nenhum dado encontrado para o período selecionado.")
     st.stop()
 
@@ -2151,8 +2525,10 @@ _show_portfolio  = (_page == 'portfolio')
 _show_report     = (_page == 'report')
 _show_config     = (_page == 'config')
 _show_creatives  = (_page == 'creatives')
+_show_admin_saas = (_page == 'admin_saas')
 
-
+if _show_admin_saas:
+    show_admin_page()
 
 # ══════════════════════════════════════════════════════════
 #  ABA 01 — PORTFÓLIO (8 clientes com pacing automático)
@@ -2205,7 +2581,7 @@ if _show_portfolio:
     # ── Carregar dados GPS de cada cliente (planilhas individuais) ──
 
     # Verificar quais clientes têm sheet_id configurado
-    missing_ids = [c for c in PORTFOLIO_CLIENTS if not CLIENTS.get(c, {}).get('sheet_id')]
+    missing_ids = [c for c in PORTFOLIO_CLIENTS if not CLIENTS.get(c.upper().strip(), {}).get('sheet_id')]
     if missing_ids:
         st.warning(
             f"⚠️ **{len(missing_ids)} cliente(s) sem SHEET_ID configurado no .env:** "
@@ -3704,8 +4080,7 @@ if _show_config:
                     ) if _rows_f else ""),
                     language=None
                 )
-
-    st.markdown(f"""
+st.markdown(f"""
     <div style="text-align:center; padding:20px; color:{C['dim']}; font-size:0.75rem; margin-top:20px; border-top:1px solid {C['border']}">
         Perfor Dashboard v2.0 • Meta Ads + Google Sheets + Google Ads • {datetime.now().strftime('%d/%m/%Y %H:%M')}
     </div>
