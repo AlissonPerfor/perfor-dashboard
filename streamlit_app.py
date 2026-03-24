@@ -879,59 +879,149 @@ def check_login_supabase(username, password):
         return "error"
 
 def show_login_page():
+    # --- V7.1: Fundo Dinâmico Rotativo ---
+    import os
+    import base64
+    import random
+    
+    # image_2.png removida da rotação
+    bg_images = ['image_1.png', 'image_3.png']
+    
+    # Mantém a mesma imagem rotacionada durante a sessão nativa do formulário
+    if 'current_bg_obj' not in st.session_state:
+        st.session_state['current_bg_obj'] = random.choice(bg_images)
+        
+    bg_path = os.path.join(os.path.dirname(__file__), st.session_state['current_bg_obj'])
+    bg_css = ""
+    
+    if os.path.exists(bg_path):
+        with open(bg_path, 'rb') as f:
+            bg_b64 = base64.b64encode(f.read()).decode()
+            bg_css = f"""
+            <style>
+            /* Imagem base inserida direto na raiz da página */
+            .stApp {{
+                background: url("data:image/png;base64,{bg_b64}") no-repeat center center fixed !important;
+                background-size: cover !important;
+            }}
+            /* Camada ViewContainer cria o blur global perfeito de fundo estilo Velvet Glassmorphism */
+            [data-testid="stAppViewContainer"] {{
+                background-image: none !important;
+                background-color: rgba(0, 0, 0, 0.85) !important; /* Retornando pra 0.85 para mostrar a arte maravilhosa que geramos sutilmente */
+                backdrop-filter: blur(12px) !important;
+                -webkit-backdrop-filter: blur(12px) !important;
+            }}
+            </style>
+            """
+    else:
+        bg_css = """<style>.stApp { background: #050505 !important; }</style>"""
+
+    st.markdown(bg_css, unsafe_allow_html=True)
+
     st.markdown('''
         <style>
-        .login-box {
-            background: #141414;
-            border: 1px solid #1E1E1E;
-            border-radius: 12px;
-            padding: 40px;
-            max-width: 400px;
-            margin: 10vh auto;
-            text-align: center;
-            box-shadow: 0 8px 32px rgba(0,213,146,0.1);
+        /* Oculta os elementos nativos do Streamlit na página de login */
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden !important;}
+        footer {visibility: hidden !important;}
+        [data-testid="stSidebar"] {display: none !important;}
+        
+        /* Animação Fade In suave de 1 segundo para a entrada */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
+
+        /* Container central (Card Form Nativo do Streamlit) resolvida a transparência v4 -> v5 */
+        [data-testid="stForm"] {
+            background: rgba(10, 10, 10, 0.88) !important; /* Corpo bem mais escuro garantido */
+            backdrop-filter: blur(16px) !important;
+            -webkit-backdrop-filter: blur(16px) !important;
+            border: 1px solid rgba(0, 213, 146, 0.20) !important; /* Borda com sutileza Verde Perfor */
+            border-radius: 16px !important;
+            padding: 40px !important;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.95), 0 0 60px rgba(0, 213, 146, 0.08) !important;
+            margin-top: 5vh;
+            animation: fadeIn 1s ease-out forwards;
+        }
+
         .login-title {
             color: #EFEFEF;
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 25px;
+            font-size: 1.6rem;
+            font-weight: 800;
+            margin-bottom: 30px;
+            letter-spacing: 0.5px;
+            text-align: center;
         }
-        .login-box .stTextInput > div > div > input {
-            background-color: #0E0E0E !important;
+
+        /* Inputs estilizados fáceis de ler (Preto fosco flat) */
+        [data-testid="stTextInput"] > div > div {
+            background-color: rgba(0, 0, 0, 0.8) !important; /* Preenchimentos pretos chapados sobre o card glass */
+            border-radius: 8px !important;
+            border: 1px solid #333333 !important;
+            transition: all 0.2s ease !important;
             color: #EFEFEF !important;
-            border: 1px solid #2A2A2A !important;
+        }
+        
+        [data-testid="stTextInput"] > div > div:focus-within {
+            border-color: #00D592 !important;
+            box-shadow: 0 0 0 1px #00D592 !important;
+            background-color: rgba(5, 5, 5, 1) !important;
+        }
+
+        [data-testid="stTextInput"] input {
+            color: #FFFFFF !important;
+            padding: 14px 16px !important;
+            background-color: transparent !important;
+            font-weight: 500;
+        }
+        
+        /* Ajuste no Placeholder para melhor contraste */
+        [data-testid="stTextInput"] input::placeholder {
+            color: #888888 !important;
+        }
+
+        /* Botão estilizado cheio com verde Perfor e Hover dentro do Form */
+        [data-testid="stFormSubmitButton"] button {
+            background: #00D592 !important;
+            border: none !important;
             border-radius: 8px !important;
+            color: #000000 !important; /* Texto do botão Preto para dar mais poderio comercial */
+            font-weight: 800 !important;
+            font-size: 1.05rem !important;
+            padding: 10px 16px !important;
+            margin-top: 25px !important;
+            box-shadow: 0 4px 14px rgba(0, 213, 146, 0.25) !important;
+            transition: all 0.3s ease !important;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            width: 100% !important;
         }
-        .login-box .stButton > button {
-            background: rgba(0,213,146,0.07) !important;
-            border: 1px solid rgba(0,213,146,0.28) !important;
-            border-radius: 8px !important;
-            color: #00D592 !important;
-            font-weight: 700 !important;
-            padding: 8px 16px !important;
-            margin-top: 15px;
+
+        [data-testid="stFormSubmitButton"] button:hover {
+            background: #00E69D !important;
+            box-shadow: 0 6px 20px rgba(0, 213, 146, 0.45) !important;
+            transform: translateY(-2px);
         }
-        .login-box .stButton > button:hover {
-            background: rgba(0,213,146,0.13) !important;
-            border-color: rgba(0,213,146,0.5) !important;
-            box-shadow: 0 0 16px rgba(0,213,146,0.12) !important;
+        
+        div[data-testid="stButton"] button:active {
+            transform: translateY(1px);
         }
-        /* Ocultar elementos desnecessários da barra e Header original na tela de login */
-        header {visibility: hidden;}
-        [data-testid="stSidebar"] {display: none;}
         </style>
+
+        <div class="img-overlay"></div>
     ''', unsafe_allow_html=True)
 
     _, col, _ = st.columns([1, 1.2, 1])
     with col:
-        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        # A div vazia anterior foi removida daqui!
         if logo_b64:
-            st.markdown(f'<img src="data:image/png;base64,{logo_b64}" style="width:160px; margin-bottom: 20px;">', unsafe_allow_html=True)
+            st.markdown(f'<div style="text-align: center;"><img src="data:image/png;base64,{logo_b64}" style="width:220px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5)); margin-bottom: 20px;"></div>', unsafe_allow_html=True)
+            
         st.markdown('<div class="login-title">Acesso Restrito</div>', unsafe_allow_html=True)
         
-        username = st.text_input("Usuário")
-        password = st.text_input("Senha", type="password")
+        username = st.text_input("Usuário", placeholder="👤  Digite seu usuário")
+        password = st.text_input("Senha", type="password", placeholder="🔒  Digite sua senha")
         
         if st.button("Entrar", use_container_width=True):
             result = check_login_supabase(username, password)
@@ -953,8 +1043,6 @@ def show_login_page():
                 st.rerun()
             else:
                 st.error("👤 Usuário ou senha incorretos.")
-                
-        st.markdown('</div>', unsafe_allow_html=True)
 
 if not st.session_state.get('logged_in', False):
     show_login_page()
