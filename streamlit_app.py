@@ -2553,7 +2553,7 @@ def load_data_from_google():
     return result
 
 if 'dados_globais' not in st.session_state:
-    with st.spinner("📡 Carregando dados... (só acontece uma vez por sessão)"):
+    with st.spinner("📡 Carregando dados... (só acontece uma vez por sessão e deve demorar até 2 minutos)"):
         st.session_state['dados_globais'] = load_data_from_google()
 
 # Referência local — leitura, nunca escrita
